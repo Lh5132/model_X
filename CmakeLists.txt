@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.6)
+project(model_X)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+option(CUDA "with cuda?" false)
+option(AVX "with avx2?" true)
+
+include_directories(${CMAKE_CURRENT_LIST_DIR}/cpu/include)
+
+file(GLOB cpu_src  ${CMAKE_CURRENT_LIST_DIR}/cpu/src/*.cpp)
+file(GLOB gpu_src  ${CMAKE_CURRENT_LIST_DIR}/gpu/*.cu)
+
+file(GLOB includes ${CMAKE_CURRENT_LIST_DIR}/cpu/include/*.h)
+file(GLOB cuda_include ${CMAKE_CURRENT_LIST_DIR}/cpu/include/*.cuh)
+
+if(MSVC)
+source_group("Source Files\\cpu" FILES ${cpu_src})
+source_group("Header Files\\cpu" FILES ${includes})
+endif()
+
+if(AVX)
+add_definitions(-DAVX_2)
+endif()
+
+if(CUDA)
+FIND_PACKAGE(CUDA REQUIRED)
+add_definitions(-DCUDA)
+    if(MSVC)
+    source_group("Source Files\\gpu" FILES ${gpu_src})
+    source_group("Header Files\\gpu" FILES ${cuda_include})
+    endif()
+CUDA_ADD_EXECUTABLE(${PROJECT_NAME} ${cpu_src} ${gpu_src} ${cuda_include} ${includes})
+else()
+ADD_EXECUTABLE(${PROJECT_NAME} ${cpu_src} ${includes})
+endif()
+
