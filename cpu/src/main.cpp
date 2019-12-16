@@ -148,13 +148,34 @@ void test_model()
 	cout << endl;
 	getchar();
 }
-void test_conv_backend()
+void test_conv_backward()
 {
 	Node n1 = Node_creater::creat(1, 3, 5, 5);
-	n1->random_init();
+	float inp[] = { 0.8398, 0.0308, 0.0695, 0.6658, 0.3044, 0.4174, 0.5668, 0.7305, 0.2353,
+		0.4678, 0.9259, 0.6297, 0.0365, 0.3951, 0.5539, 0.6972, 0.5534, 0.1443,
+		0.5309, 0.1678, 0.4845, 0.6227, 0.6950, 0.9202, 0.6015, 0.6132, 0.7825,
+		0.8218, 0.5978, 0.9807, 0.7549, 0.3665, 0.8232, 0.3721, 0.4600, 0.6462,
+		0.1541, 0.2583, 0.4188, 0.0606, 0.6783, 0.3117, 0.7399, 0.9236, 0.1688,
+		0.6016, 0.4300, 0.5211, 0.2801, 0.3428, 0.9276, 0.5343, 0.6967, 0.0819,
+		0.5186, 0.1484, 0.2159, 0.7510, 0.6419, 0.4928, 0.6240, 0.7414, 0.2302,
+		0.6409, 0.6579, 0.6359, 0.7092, 0.5766, 0.4834, 0.6631, 0.1424, 0.0218,
+		0.7714, 0.9141, 0.9634 };
+	memcpy(n1->get_batch_data(0), inp, 75 * sizeof(float));
 	n1->print_data();
 	Conv_2d conv(3, 2, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
-	conv.random_init();
+	float w1[] = { -0.0949, -0.0137,  0.1447,  0.1564,  0.1240, -0.0569, -0.1180,  0.0368,
+		0.1126, -0.1686, -0.1784, -0.1684,  0.0618, -0.0641, -0.1098,  0.1559,
+		0.0911, -0.0465, -0.0648,  0.1606, -0.1355, -0.0502,  0.0205,  0.1804,
+		-0.0304,  0.0491, -0.0552 };
+	float w2[] = { -0.1661,  0.0395,  0.1818,  0.0101, -0.0310,  0.1640, -0.0512, -0.1813,
+		0.0333,  0.1029, -0.0351,  0.0250, -0.0777, -0.0914,  0.1260, -0.1758,
+		-0.1844, -0.1249,  0.0299, -0.0903,  0.1078,  0.0378,  0.1167, -0.1790,
+		-0.1239, -0.1832, -0.1589 };
+
+	memcpy(conv.get_channel_data(0), w1, 27 * sizeof(float));
+	memcpy(conv.get_channel_data(1), w2, 27 * sizeof(float));
+
+	conv.print_weight();
 	n1->require_grad();
 	conv.train();
 	Node n2 = conv.forward(n1);
@@ -162,11 +183,11 @@ void test_conv_backend()
 	conv.dL_dout = new node(1,2,5,5,true);
 	conv.dL_dout->set_one();
 	Optimizer opt = Optimizer(Optimizer_method::SGD,0.1);
-	conv.backend(opt);
+	conv.backward(opt);
 	conv.dL_din->print_data();
 	getchar();
 }
 int main(int arc, char** argv)
 {
-	test_conv_backend();
+	test_conv_backward();
 }

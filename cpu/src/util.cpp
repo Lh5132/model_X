@@ -48,7 +48,7 @@ namespace model_X
 			if (tail > 0)
 			{
 				for (uint8_t i = 0; i < tail; i++)
-					des[nblocks + i] = d1[nblocks + i] + d2[nblocks + i];
+					des[size - i -1] = d1[size - i - 1] + d2[size - i - 1];
 			}
 		}
 		else if (size > 0)
@@ -80,7 +80,7 @@ namespace model_X
 			{
 				for (uint8_t i = 0; i < tail; i++)
 				{
-					out += d1[nblocks + i] + d2[nblocks + i];
+					out += d1[size - i - 1] * d2[size - i - 1];
 				}
 			}
 			return out;

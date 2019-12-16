@@ -3,8 +3,8 @@
 #include <unordered_set>
 namespace model_X
 {
-	Loss::Loss(Operator* backend_start, DTYPE loss) :backend_start(backend_start), loss(loss) {}
-	Loss::Loss(const Loss& other): backend_start(other.backend_start), loss(other.loss) {}
+	Loss::Loss(Operator* backward_start, DTYPE loss) :backward_start(backward_start), loss(loss) {}
+	Loss::Loss(const Loss& other): backward_start(other.backward_start), loss(other.loss) {}
 	DTYPE Loss::item()
 	{
 		return this->loss;
@@ -22,10 +22,10 @@ namespace model_X
 			并将该节点放入stack中
 		当求导进行到链表起点，或者stack中没有Operator时，求导过程结束
 	*/
-	void Loss::backend(Optimizer& opt)
+	void Loss::backward(Optimizer& opt)
 	{
 		Operator* now;
-		vector<Operator*> stack = { this->backend_start };
+		vector<Operator*> stack = { this->backward_start };
 		unordered_set<Operator*> set;
 		while (stack.size())
 		{
@@ -49,7 +49,7 @@ namespace model_X
 						stack.push_back(((Concator*)now)->get_O2());
 						break;
 					}
-					now->backend(opt);
+					now->backward(opt);
 					now->get_pre()->increase_count_back();
 					now->pass_gradients();
 					if (now->get_pre()->get_count_out() > 1)

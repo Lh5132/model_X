@@ -109,7 +109,7 @@ namespace model_X
 	{
 		this->pre->dL_dout = gradients;
 	}
-	void Operator::backend(Optimizer& opt) {}
+	void Operator::backward(Optimizer& opt) {}
 	void Operator::zero_grad() {}
 	void Operator::to_binay_file(ofstream& outfile) {}
 	string Operator::info() { return ""; }
@@ -470,7 +470,7 @@ namespace model_X
 		fill(this->dL_dout->data, this->dL_dout->data + this->dL_dout->total_size, 0.0f);
 	}
 
-	void Conv_2d::backend(Optimizer& opt)
+	void Conv_2d::backward(Optimizer& opt)
 	{
 		//计算dL_dw
 		uint32_t dw_size = kernel_steps*out_channels;
@@ -503,7 +503,7 @@ namespace model_X
 						uint32_t loc = j*this->kernel_size;
 						for (uint16_t k = 0; k < this->dout_din_row_size[j]; k++)
 						{
-							temp += channel_w[this->dout_din_w_loc[loc+k]] * \
+							temp += channel_w[i*this->kernel_size+this->dout_din_w_loc[loc+k]] * \
 								dL_dout_channle_data[this->dout_din_out_loc[loc+k]];
 						}
 						dl_din_channel[j] += temp;
@@ -1336,7 +1336,7 @@ namespace model_X
 		return this->O2;
 	}
 
-	void Concator::backend(Optimizer& opt)
+	void Concator::backward(Optimizer& opt)
 	{
 		this->set_gradients();
 		unordered_set<Operator*> set;
@@ -1358,7 +1358,7 @@ namespace model_X
 				}
 				else
 				{
-					now->backend(opt);
+					now->backward(opt);
 					now = now->pre;
 				}
 			}

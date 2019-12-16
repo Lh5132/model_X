@@ -164,7 +164,7 @@ namespace model_X
 		*/
 		virtual Operator* get_pre();
 		virtual Node forward(Node input);
-		virtual void backend(Optimizer& opt);
+		virtual void backward(Optimizer& opt);
 		virtual void zero_grad();
 		virtual void to_binay_file(ofstream& outfile);
 		virtual string info();
@@ -246,7 +246,7 @@ namespace model_X
 		Node forward(Node input);
 		void random_init(int init_method = Normal);
 		void zero_grad();
-		void backend(Optimizer& opt);
+		void backward(Optimizer& opt);
 		void print_weight();
 		void print_bias();
 		//模型IO函数
@@ -383,7 +383,7 @@ namespace model_X
 		Operator* O2;
 		Operator* start = nullptr;
 	public:
-		void backend(Optimizer& opt);
+		void backward(Optimizer& opt);
 		Operator* get_pre();
 		Operator*& get_O1();
 		Operator*& get_O2();

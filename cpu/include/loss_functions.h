@@ -7,13 +7,13 @@ namespace model_X
 	class Loss
 	{
 	private:
-		Operator* backend_start;
+		Operator* backward_start;
 		DTYPE loss;
 	public:
-		Loss(Operator* backend_start, DTYPE loss);
+		Loss(Operator* backward_start, DTYPE loss);
 		Loss(const Loss& other);
 		DTYPE item();
-		void backend(Optimizer& opt);
+		void backward(Optimizer& opt);
 	};
 
 	namespace Loss_Functions
