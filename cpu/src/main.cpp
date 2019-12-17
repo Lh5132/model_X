@@ -182,7 +182,7 @@ void test_conv_backward()
 	n2->print_data();
 	conv.dL_dout = new node(1,2,5,5,true);
 	conv.dL_dout->set_one();
-	Optimizer opt = Optimizer(Optimizer_method::SGD,0.1);
+	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
 	conv.dL_din->print_data();
 	getchar();

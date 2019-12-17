@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "node.h"
 #include "layer.h"
+#include "optimizer.h"
 
 namespace model_X
 {
@@ -13,7 +14,7 @@ namespace model_X
 		Loss(Operator* backward_start, DTYPE loss);
 		Loss(const Loss& other);
 		DTYPE item();
-		void backward(Optimizer& opt);
+		void backward(Optimizer::base_optimizer& opt);
 	};
 
 	namespace Loss_Functions

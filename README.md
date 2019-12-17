@@ -77,7 +77,7 @@ int main()
         //计算Loss
         Loss l = BCEloss(model.out,ground_truch);
         //开始反向求导并进行梯度更新
-        l.backend();
+        l.backward();
         //打印损失
         if(i%100==0)
         {

@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "util.h"
+#include "optimizer.h"
 #include <fstream>
 
 #ifdef CUDA
@@ -28,28 +29,28 @@ namespace model_X
 		static const uint8_t AVE_POOL = 9;
 		static const uint8_t DROP_OUT = 10;
 	}
-	namespace Optimizer_method
-	{
-		static const uint8_t SGD = 1;
-		static const uint8_t Momentum = 2;
-		static const uint8_t RMSProp = 3;
-		static const uint8_t Adam = 4;
-	}
+	//namespace Optimizer_method
+	//{
+	//	static const uint8_t SGD = 1;
+	//	static const uint8_t Momentum = 2;
+	//	static const uint8_t RMSProp = 3;
+	//	static const uint8_t Adam = 4;
+	//}
 
-	typedef struct Optimizer
-	{
-		uint8_t optimizer_method;
-		DTYPE learning_rate;
-		DTYPE momentum_1;
-		DTYPE momentum_2;
-		DTYPE eps;
-		Optimizer(uint8_t method_ID, DTYPE lr, DTYPE momentum_1 = 0.9, DTYPE momentum_2 = 0.99, DTYPE eps = 1e-8) :
-			optimizer_method(method_ID),
-			learning_rate(lr),
-			momentum_1(momentum_1),
-			momentum_2(momentum_2),
-			eps(eps) {}
-	} Optimizer;
+	//typedef struct Optimizer
+	//{
+	//	uint8_t optimizer_method;
+	//	DTYPE learning_rate;
+	//	DTYPE momentum_1;
+	//	DTYPE momentum_2;
+	//	DTYPE eps;
+	//	Optimizer(uint8_t method_ID, DTYPE lr, DTYPE momentum_1 = 0.9, DTYPE momentum_2 = 0.99, DTYPE eps = 1e-8) :
+	//		optimizer_method(method_ID),
+	//		learning_rate(lr),
+	//		momentum_1(momentum_1),
+	//		momentum_2(momentum_2),
+	//		eps(eps) {}
+	//} Optimizer;
 
 	typedef struct conv_stride
 	{
@@ -113,6 +114,7 @@ namespace model_X
 		dout_db:	该层输出对偏置项的导数矩阵，与dc_dout相乘后即为损失函数对偏置项的导数
 		dout_din:	该层输出对输入的导数矩阵，用于链式求解前一层的dc_dout;
 		*/
+
 	public:
 		uint8_t ID = 0;
 		Operator* pre = nullptr;   //用于记录从后向前的单向链表
@@ -164,7 +166,7 @@ namespace model_X
 		*/
 		virtual Operator* get_pre();
 		virtual Node forward(Node input);
-		virtual void backward(Optimizer& opt);
+		virtual void backward(Optimizer::base_optimizer& opt);
 		virtual void zero_grad();
 		virtual void to_binay_file(ofstream& outfile);
 		virtual string info();
@@ -213,14 +215,17 @@ namespace model_X
 		uint16_t* dout_din_out_loc = nullptr;
 		uint16_t* dout_din_row_size = nullptr;
 
-		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
+		DTYPE* dL_dw_now = nullptr;
+		DTYPE* dL_db_now = nullptr;
 		DTYPE* dL_dw = nullptr;
 		DTYPE* dL_db = nullptr;
 		DTYPE* dL_dw_1 = nullptr;
 		DTYPE* dL_db_1 = nullptr;
 		DTYPE* dL_dw_2 = nullptr;
 		DTYPE* dL_db_2 = nullptr;
-		int time_step = 0;
+
+		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
+		uint32_t time_step = 0;
 
 #ifdef CUDA
 	private:
@@ -237,6 +242,12 @@ namespace model_X
 		friend void __conv_async_helper(Node input, Node out, Conv_2d* conv,
 			uint32_t tm_batch_steps, uint32_t out_cols,
 			uint32_t start, uint32_t end);
+
+		friend class Optimizer::SGD;
+		friend class Optimizer::Momentum;
+		friend class Optimizer::RMSProp;
+		friend class Optimizer::Adam;
+
 		inline DTYPE* get_channel_data(uint16_t channel)
 		{
 			return this->weights + channel*this->kernel_steps_pad;
@@ -246,7 +257,7 @@ namespace model_X
 		Node forward(Node input);
 		void random_init(int init_method = Normal);
 		void zero_grad();
-		void backward(Optimizer& opt);
+		void backward(Optimizer::base_optimizer& opt);
 		void print_weight();
 		void print_bias();
 		//模型IO函数
@@ -258,6 +269,22 @@ namespace model_X
 
 	class Dense final :public Operator
 	{
+	private:
+		//输出对全连接参数的雅可比矩阵
+		DTYPE* dout_dw = nullptr;
+		DTYPE* dout_db = nullptr;
+
+		//输出对输入的雅可比矩阵
+		uint16_t* dout_din = nullptr;
+
+		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
+		DTYPE* dL_dw = nullptr;
+		DTYPE* dL_db = nullptr;
+		DTYPE* dL_dw_1 = nullptr;
+		DTYPE* dL_db_1 = nullptr;
+		DTYPE* dL_dw_2 = nullptr;
+		DTYPE* dL_db_2 = nullptr;
+		uint32_t time_step = 0;
 	public:
 		DTYPE* weights;
 		DTYPE* bias;
@@ -275,6 +302,7 @@ namespace model_X
 			return this->weights + c*this->in_size_pad;
 		}
 		Node forward(Node input);
+		void backward(Optimizer::base_optimizer& opt);
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 		string info();
@@ -383,7 +411,7 @@ namespace model_X
 		Operator* O2;
 		Operator* start = nullptr;
 	public:
-		void backward(Optimizer& opt);
+		void backward(Optimizer::base_optimizer& opt);
 		Operator* get_pre();
 		Operator*& get_O1();
 		Operator*& get_O2();

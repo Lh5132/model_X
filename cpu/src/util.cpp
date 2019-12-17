@@ -150,7 +150,6 @@ namespace model_X
 	}
 	void linear_muladd_avx(DTYPE* d1, DTYPE& d2, DTYPE& d3, uint32_t& size)
 	{
-		DTYPE out = 0;
 		uint32_t nblocks;
 		uint8_t tail;
 		if (size > 8)
@@ -172,6 +171,31 @@ namespace model_X
 		}
 		else
 			linear_muladd_normal(d1, d2, d3, size);
+	}
+	void apply_gradients_avx(DTYPE * grad, DTYPE * data, DTYPE lr, uint32_t & size)
+	{
+		uint32_t nblocks;
+		uint8_t tail;
+		if (size > 8)
+		{
+			__m256 data_loader;
+			__m256 grad_loader;
+			__m256 learningrate = _mm256_set1_ps(lr);
+			__m256 temp;
+			nblocks = size / 8;
+			tail = size % 8;
+			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			{
+				grad_loader = _mm256_loadu_ps(grad + j);
+				data_loader = _mm256_loadu_ps(data + j);
+				temp = _mm256_fnmadd_ps(grad_loader, learningrate, data_loader);
+				_mm256_storeu_ps(data + j, temp);
+			}
+			for (uint8_t i = 0; i < tail; i++)
+				data[size - i - 1] = data[size - i - 1] - lr * grad[size - i - 1];
+		}
+		else
+			apply_gradients_normal(grad, data, lr, size);
 	}
 #endif
 	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size)
@@ -199,6 +223,13 @@ namespace model_X
 		for (uint32_t i = 0; i < size; i++)
 			out += (d1[i] - mean) * (d1[i] - mean);
 		return out / size;
+	}
+	void apply_gradients_normal(DTYPE * grad, DTYPE * data, DTYPE lr, uint32_t & size)
+	{
+		for (uint32_t i = 0; i < size; i++)
+		{
+			data[i] = data[i] - grad[i] * lr;
+		}
 	}
 	void linear_muladd_normal(DTYPE* d1, DTYPE& d2, DTYPE& d3, uint32_t& size)
 	{

@@ -109,7 +109,7 @@ namespace model_X
 	{
 		this->pre->dL_dout = gradients;
 	}
-	void Operator::backward(Optimizer& opt) {}
+	void Operator::backward(Optimizer::base_optimizer& opt) {}
 	void Operator::zero_grad() {}
 	void Operator::to_binay_file(ofstream& outfile) {}
 	string Operator::info() { return ""; }
@@ -470,14 +470,15 @@ namespace model_X
 		fill(this->dL_dout->data, this->dL_dout->data + this->dL_dout->total_size, 0.0f);
 	}
 
-	void Conv_2d::backward(Optimizer& opt)
+	void Conv_2d::backward(Optimizer::base_optimizer& opt)
 	{
 		//计算dL_dw
 		uint32_t dw_size = kernel_steps*out_channels;
-		DTYPE* dL_dw_now = new DTYPE[dw_size]{};
-		DTYPE* dL_db_now;
+		if(!dL_dw_now)
+			dL_dw_now = new DTYPE[dw_size]{};
 		if (this->with_bias)
-			dL_db_now = new DTYPE[this->out_channels]{};
+			if(!dL_db_now)
+				dL_db_now = new DTYPE[this->out_channels]{};
 		for (uint16_t b = 0; b < this->dL_dout->batchsize; b++)
 		{
 			DTYPE* dout_dw_batch = this->dout_dw + b * tm_cols*tm_rows;
@@ -511,126 +512,12 @@ namespace model_X
 				}
 			}
 		}
-		for (uint16_t i = 0; i < dw_size; i++)
-		{
-			cout << dL_dw_now[i] << ",";
-		}
-		cout << endl;
-		//for (uint16_t i = 0; i < out_channels; i++)
+		//for (uint16_t i = 0; i < dw_size; i++)
 		//{
-		//	cout << dL_db_now[i] << ",";
+		//	cout << dL_dw_now[i] << ",";
 		//}
 		//cout << endl;
-		switch (opt.optimizer_method)
-		{
-		case Optimizer_method::SGD:
-			this->dL_dw = dL_dw_now;
-			if(this->with_bias)
-				this->dL_db = dL_db_now;
-			break;
-		case Optimizer_method::Momentum:
-			if (!this->dL_dw)
-			{
-				this->dL_dw = new DTYPE[dw_size]{};
-			}
-			for (uint32_t i = 0; i < dw_size; i++)
-			{
-				this->dL_dw[i] = this->dL_dw[i] * opt.momentum_1 + (1 - opt.momentum_1)*dL_dw_now[i];
-			}
-			if (this->with_bias)
-			{
-				if (!this->dL_db)
-					this->dL_db = new DTYPE[this->out_channels];
-				for (uint16_t c = 0; c < this->out_channels;c++)
-					this->dL_db[c] = this->dL_db[c] * opt.momentum_1 + (1 - opt.momentum_1)*dL_db_now[c];
-			}
-		case Optimizer_method::RMSProp:
-			if (!this->dL_dw)
-			{
-				this->dL_dw = new DTYPE[dw_size]{};
-			}
-			if (!this->dL_dw_2)
-			{
-				this->dL_dw_2 = new DTYPE[dw_size]{};
-			}
-			for (uint32_t i = 0; i < dw_size; i++)
-			{
-				this->dL_dw_2[i] = this->dL_dw_2[i] * opt.momentum_2 + (1 - opt.momentum_2)*dL_dw_now[i] * dL_dw_now[i];
-				this->dL_dw[i] = dL_dw_now[i] / (sqrt(this->dL_dw_2[i]) + opt.eps);
-			}
-			if (this->with_bias)
-			{
-				if (!this->dL_db)
-				{
-					this->dL_db = new DTYPE[this->out_channels]{};
-				}
-				if (!this->dL_db_2)
-				{
-					this->dL_db_2 = new DTYPE[this->out_channels]{};
-				}
-				for (uint16_t c = 0; c < this->out_channels; c++)
-				{
-					this->dL_db_2[c] = this->dL_db_2[c] * opt.momentum_1 + (1 - opt.momentum_1)*dL_db_now[c] * dL_db_now[c];
-					this->dL_db[c] = dL_db_now[c] / (sqrt(this->dL_db_2[c]) + opt.eps);
-				}
-			}
-		case Optimizer_method::Adam:
-			this->time_step += 1;
-			if (!this->dL_dw)
-			{
-				this->dL_dw = new DTYPE[dw_size]{};
-			}
-			if (!this->dL_dw_1)
-			{
-				this->dL_dw_1 = new DTYPE[dw_size]{};
-			}
-			if (!this->dL_dw_2)
-			{
-				this->dL_dw_2 = new DTYPE[dw_size]{};
-			}
-
-			for (uint32_t i = 0; i < dw_size; i++)
-			{
-				this->dL_dw_1[i] = this->dL_dw_1[i] * opt.momentum_1 + (1 - opt.momentum_1)*dL_dw_now[i];
-				this->dL_dw_2[i] = this->dL_dw_2[i] * opt.momentum_2 + (1 - opt.momentum_2)*dL_dw_now[i] * dL_dw_now[i];
-				this->dL_dw[i] = dL_dw_1[i] / (1 - pow(opt.momentum_1, this->time_step)) / \
-					(sqrt(dL_dw_2[i] / (1 - pow(opt.momentum_2, this->time_step))) + opt.eps);
-			}
-			if (this->with_bias)
-			{
-				if (!this->dL_db)
-				{
-					this->dL_db = new DTYPE[this->out_channels]{};
-				}
-				if (!this->dL_dw_1)
-				{
-					this->dL_dw_1 = new DTYPE[this->out_channels]{};
-				}
-				if (!this->dL_dw_2)
-				{
-					this->dL_dw_2 = new DTYPE[this->out_channels]{};
-				}
-
-				for (uint32_t i = 0; i < this->out_channels; i++)
-				{
-					this->dL_db_1[i] = this->dL_db_1[i] * opt.momentum_1 + (1 - opt.momentum_1)*dL_db_now[i];
-					this->dL_db_2[i] = this->dL_db_2[i] * opt.momentum_2 + (1 - opt.momentum_2)*dL_db_now[i] * dL_db_now[i];
-					this->dL_db[i] = dL_db_1[i] / (1 - pow(opt.momentum_1, this->time_step)) / \
-						(sqrt(dL_db_2[i] / (1 - pow(opt.momentum_2, this->time_step))) + opt.eps);
-				}
-			}
-		default:
-			break;
-		}
-
-		delete[] dL_db_now;
-		delete[] dL_dw_now;
-		if (opt.optimizer_method == Optimizer_method::SGD)
-		{
-			dL_db = nullptr;
-			dL_dw = nullptr;
-		}
-
+		opt.apply_gradients(this);
 	}
 	void Conv_2d::print_weight()
 	{
@@ -824,6 +711,11 @@ namespace model_X
 		if (this->in_size_pad != input->batch_steps_pad)
 			throw "dims miss match!";
 		Node out = Node_creater::creat(input->batchsize, 1, 1, this->out_size);
+		if (this->require_gradients)
+		{
+			this->dL_din = input->copy(false);
+			
+		}
 		if (this->parall_thread > 1 && this->out_size > this->parall_thread)
 		{
 			future<void>* fn = new future<void>[this->parall_thread];
@@ -870,6 +762,11 @@ namespace model_X
 		this->pre = input->creater;
 		out->creater = this;
 		return out;
+	}
+
+	void Dense::backward(Optimizer::base_optimizer & opt)
+	{
+
 	}
 
 	void Dense::to_binay_file(ofstream& outfile)
@@ -1336,7 +1233,7 @@ namespace model_X
 		return this->O2;
 	}
 
-	void Concator::backward(Optimizer& opt)
+	void Concator::backward(Optimizer::base_optimizer& opt)
 	{
 		this->set_gradients();
 		unordered_set<Operator*> set;

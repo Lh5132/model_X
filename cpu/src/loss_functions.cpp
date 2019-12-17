@@ -22,7 +22,7 @@ namespace model_X
 			并将该节点放入stack中
 		当求导进行到链表起点，或者stack中没有Operator时，求导过程结束
 	*/
-	void Loss::backward(Optimizer& opt)
+	void Loss::backward(Optimizer::base_optimizer& opt)
 	{
 		Operator* now;
 		vector<Operator*> stack = { this->backward_start };
@@ -90,12 +90,12 @@ namespace model_X
 				if (ground_truth->get_batch_data(c)[0] == 0.0f)
 				{
 					out -= log(1 - predict);
-					*gradient_batch = (predict / (1 - predict) - predict)*exp_ / output->batchsize;
+					*gradient_batch = predict / output->batchsize;
 				}
 				else
 				{
 					out -= log(predict);
-					*gradient_batch = 0 - predict*exp_ / output->batchsize;
+					*gradient_batch = (predict -1) / output->batchsize;
 				}
 			}
 			Loss l(output->creater, out / output->batchsize);
@@ -126,25 +126,36 @@ namespace model_X
 			}
 			DTYPE out = 0;
 			output->creater->dL_dout = output->copy(false);
+			DTYPE* predict = new DTYPE[output->batchsize*output->batch_steps]{};
+			DTYPE* exp_ = new DTYPE[output->batchsize*output->batch_steps]{};
 			for (uint16_t c = 0; c < output->batchsize; c++)
 			{
-				DTYPE* out_put_data = output->get_batch_data(c);
-				DTYPE* ground_truth_data = ground_truth->get_batch_data(c);
+				uint32_t pad_loc = c*output->batch_steps_pad;
+				uint32_t loc = c*output->batch_steps;
+				DTYPE* out_put_data = output->data + pad_loc;
+				DTYPE* ground_truth_data = ground_truth->data + pad_loc;
 				DTYPE batch_loss = 0;
-				DTYPE* gradient_batch = output->creater->dL_dout->get_batch_data(c);
+				DTYPE* gradient_batch = output->creater->dL_dout->data + pad_loc;
+				DTYPE* predict_batch = predict + loc;
+				DTYPE total = 0;
+				DTYPE* exp_batch = exp_ + loc;
 				for (uint16_t i = 0; i < output->batch_steps; i++)
 				{
-					DTYPE exp_ = exp(0 - out_put_data[i]);
-					DTYPE predict = 1 / (1 + exp_);
+					exp_[i] = exp(out_put_data[i]);
+					total += exp_[i];
+				}
+				for (uint16_t i = 0; i < output->batch_steps; i++)
+				{
+					predict_batch[i] = exp_[i]/total;
 					if (ground_truth_data[i] == 0.0f)
 					{
-						batch_loss -= log(1 - predict);
-						gradient_batch[i] = predict / output->batchsize;
+						batch_loss -= log(1 - predict_batch[i]);
+						gradient_batch[i] = exp_batch[i]/total / output->batchsize;
 					}
 					else
 					{
-						batch_loss -= log(predict);
-						gradient_batch[i] = (predict - 1) / output->batchsize;
+						batch_loss -= log(predict_batch[i]);
+						gradient_batch[i] = (exp_batch[i] - total) / total / output->batchsize;
 					}
 				}
 				out += batch_loss;

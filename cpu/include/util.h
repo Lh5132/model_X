@@ -16,12 +16,14 @@
 #define SUM(A, SIZE) sum_avx(A, SIZE)
 #define VAR(A, E, SIZE) var_avx(A, E, SIZE)
 #define LINEAR_MUL_ADD(A, B, C, SIZE) linear_muladd_avx(A, B, C, SIZE)
+#define APPLY_GRADIENTS(GRAD, DATA, LR, SIZE) apply_gradients_avx(GRAD, DATA, LR, SIZE)
 #else
 #define MUL_ADD(A, B, SIZE) muladd_normal(A, B, SIZE)
 #define ADD(A, B, C, SIZE) add_normal(A, B, C, SIZE)
 #define SUM(A, SIZE) sum_normal(A, SIZE)
 #define VAR(A, E, SIZE) var_normal(A, E, SIZE)
 #define LINEAR_MUL_ADD(A, B, C, SIZE) linear_muladd_normal(A, B, C, SIZE)
+#define APPLY_GRADIENTS(GRAD,DATA,SIZE) apply_gradients_normal(GRAD,DATA,SIZE)
 #endif
 
 namespace model_X
@@ -61,11 +63,14 @@ namespace model_X
 	DTYPE sum_avx(DTYPE* d1, uint32_t& size);
 	DTYPE var_avx(DTYPE* d1, DTYPE& mean, uint32_t& size);
 	void linear_muladd_avx(DTYPE* d1, DTYPE& d2, DTYPE& d3, uint32_t& size);
+	void apply_gradients_avx(DTYPE* grad, DTYPE* data, DTYPE lr, uint32_t& size);
+
 #endif
 	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size);
 	DTYPE muladd_normal(DTYPE* d1, DTYPE* d2, uint32_t& size);
 	DTYPE sum_normal(DTYPE* d1, uint32_t& size);
 	DTYPE var_normal(DTYPE* d1, DTYPE& mean, uint32_t& size);
 	void linear_muladd_normal(DTYPE* d1, DTYPE& d2, DTYPE& d3, uint32_t& size);
+	void apply_gradients_normal(DTYPE* grad, DTYPE* data, DTYPE lr, uint32_t& size);
 	int get_cpu_cors();
 }
