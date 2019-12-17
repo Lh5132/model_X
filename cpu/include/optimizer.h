@@ -1,8 +1,9 @@
-#pragma once
+﻿#pragma once
 #include "util.h"
 namespace model_X
 {
 	class Conv_2d;
+	class Dense;
 	namespace Optimizer
 	{
 		class base_optimizer
@@ -11,6 +12,7 @@ namespace model_X
 			DTYPE lr;
 		public:
 			virtual void apply_gradients(Conv_2d* conv) = 0;
+			virtual void apply_gradients(Dense* dense) = 0;
 			virtual ~base_optimizer() = default;
 		};
 		class SGD final : public base_optimizer
@@ -18,6 +20,7 @@ namespace model_X
 		public:
 			SGD(DTYPE lr);
 			void apply_gradients(Conv_2d* conv);
+			void apply_gradients(Dense* dense);
 		};
 		class Momentum final : public base_optimizer
 		{
@@ -26,6 +29,7 @@ namespace model_X
 		public:
 			Momentum(DTYPE lr, DTYPE momentum = 0.9);
 			void apply_gradients(Conv_2d* conv);
+			void apply_gradients(Dense* dense);
 		};
 
 		class RMSProp final : public base_optimizer
@@ -36,6 +40,7 @@ namespace model_X
 		public:
 			RMSProp(DTYPE lr, DTYPE beta = 0.99);
 			void apply_gradients(Conv_2d* conv);
+			void apply_gradients(Dense* dense);
 		};
 
 		class Adam final : public base_optimizer
@@ -49,6 +54,7 @@ namespace model_X
 		public:
 			Adam(DTYPE lr, DTYPE beta1 = 0.9, DTYPE beta2 = 0.99);
 			void apply_gradients(Conv_2d* conv);
+			void apply_gradients(Dense* dense);
 		};
 	}
 }

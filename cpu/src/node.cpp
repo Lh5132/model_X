@@ -73,6 +73,7 @@ namespace model_X
 	{
 		if (init_method == Uniform)
 		{
+			srand(clock());
 			for (uint16_t i = 0; i < this->batchsize; i++)
 			{
 				for (uint32_t j = 0; j < this->batch_steps; j++)

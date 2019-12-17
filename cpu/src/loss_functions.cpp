@@ -52,7 +52,7 @@ namespace model_X
 					now->backward(opt);
 					now->get_pre()->increase_count_back();
 					now->pass_gradients();
-					if (now->get_pre()->get_count_out() > 1)
+					if (now->get_pre()->get_count_back() < now->get_pre()->get_count_out())
 					{
 						if (set.count(now->get_pre()) == 0)
 						{
@@ -159,7 +159,6 @@ namespace model_X
 					}
 				}
 				out += batch_loss;
-
 			}
 			Loss l(output->creater, out / output->batchsize);
 			return l;

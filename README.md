@@ -4,9 +4,14 @@
 * 支持的层操作包括Conv,BN,Dense,Drop,Relu,Maxpool,AvgPool,Sigmoid,Softmax
 * 目前暂不支持上采样和反卷积
 * 目前支持自定义计算图(包括残差链接，attention等结构)，但不支持自定义损失函数
+* 梯度更新求解器包括SGD,Momentum,RMSProp,Adam四种
+* 可通过model.set_async_thread()设置cpu下的并行计算，可自行填入线程数，默认值为电脑CPU总核心数
+* 可通过model.to_cuda()和Node.to_cuda将模型和张量数据放入GPU中进行并行计算，计算结束后可通过model.to_cpu()和Node.to_cpu将数据拷贝至CPU中
+* Python的API接口正在开发中
 
 ## 代码示例
-1. 模型定义
+### 1. 模型定义
+#### 1.1 通过继承基类构建模型
 ````c
 #include "Base_model.h"
 #include "layer.h"
@@ -31,14 +36,9 @@ int main()
 
         Drop_out dp = creat_model(new Drop_out());
         Dense dense = creat_model(new Dense(4096, 1000));
-        //定义输出
-        Node out;
-        /*
-        可自定义多个输出（对应多任务学习的情况）
-        Node out1,out2,out3...;
-        */
+
         //重载forward函数
-        void forward(Node input)
+        Node forward(Node input)
         {
             //自定义前向计算图
             Node x = conv1(input);
@@ -56,28 +56,49 @@ int main()
             out = r3(out);
             out = dp(out);
             out = dense(out);
+            return out;
         }
     }
 }
 ````
-2. 模型训练
+#### 1.2 通过Sequential搭建模型
+````c
+int main()
+{
+    Sequential model = Sequential();
+	model.add_moudle(new Conv_2d(3, 64, 3, 3, conv_stride(1,1), conv_padding(1,1,1,1)));
+	model.add_moudle(new Relu());
+	model.add_moudle(new Max_pool(2, 2));
+
+	model.add_moudle(new Conv_2d(64, 128, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
+	model.add_moudle(new Relu());
+	model.add_moudle(new Max_pool(2, 2));
+
+	model.add_moudle(new Dense(4096, 4096));
+	model.add_moudle(new Relu());
+	model.add_moudle(new Drop_out());
+	model.add_moudle(new Dense(4096, 1000));
+}
+````
+### 2. 模型训练
 ````c
 int main()
 {
     ...
     mymodel model = mymodel();
     model.train();
+    Optimizer::Adam opt(0.1);
     for(uint32_t i=0;i<train_steps;i++)
     {
         //读取当前批次的数据及标签
         Node input = Input[i];
         Node ground_truch = Ground_truch[i];
         //进行前向计算
-        model.forward(input);
+        Node out = model.forward(input);
         //计算Loss
-        Loss l = BCEloss(model.out,ground_truch);
+        Loss l = BCEloss(out,ground_truch);
         //开始反向求导并进行梯度更新
-        l.backward();
+        l.backward(opt);
         //打印损失
         if(i%100==0)
         {
@@ -88,7 +109,7 @@ int main()
     model.save("model.weights");
 }
 ````
-3. 读取预训练模型并进行测试
+### 3. 读取预训练模型并进行测试
 ````c
 int main()
 {

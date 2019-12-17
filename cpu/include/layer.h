@@ -208,7 +208,6 @@ namespace model_X
 
 		//输出对卷积参数的雅可比矩阵
 		DTYPE* dout_dw = nullptr;
-		DTYPE* dout_db = nullptr;
 
 		//输出对输入的雅可比矩阵，该矩阵为稀疏矩阵
 		uint16_t* dout_din_w_loc = nullptr;				
@@ -270,13 +269,17 @@ namespace model_X
 	class Dense final :public Operator
 	{
 	private:
-		//输出对全连接参数的雅可比矩阵
-		DTYPE* dout_dw = nullptr;
-		DTYPE* dout_db = nullptr;
-
-		//输出对输入的雅可比矩阵
-		uint16_t* dout_din = nullptr;
-
+		DTYPE* weights;
+		DTYPE* bias;
+		uint32_t in_size;
+		uint32_t in_size_pad;
+		uint32_t out_size;
+		uint32_t total_size;
+		bool with_bias;
+		uint8_t data_pad;
+		node* dout_dw = nullptr;
+		DTYPE* dL_dw_now = nullptr;
+		DTYPE* dL_db_now = nullptr;
 		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
 		DTYPE* dL_dw = nullptr;
 		DTYPE* dL_db = nullptr;
@@ -286,14 +289,12 @@ namespace model_X
 		DTYPE* dL_db_2 = nullptr;
 		uint32_t time_step = 0;
 	public:
-		DTYPE* weights;
-		DTYPE* bias;
-		uint32_t in_size;
-		uint32_t in_size_pad;
-		uint32_t out_size;
-		uint32_t total_size;
-		bool with_bias;
-		uint8_t data_pad;
+		friend class Optimizer::SGD;
+		friend class Optimizer::Momentum;
+		friend class Optimizer::RMSProp;
+		friend class Optimizer::Adam;
+		friend void __dense_async_helper(Node input, Node out, Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
+
 		Dense();
 		Dense(uint32_t in_size, uint32_t out_size, bool with_bias = true);
 		void random_init(int init_method = Normal);
@@ -340,22 +341,19 @@ namespace model_X
 	};
 	class Batch_normal_2d final : public Operator
 	{
-	public:
-
+	private:
 		uint16_t channels;
-
 		bool with_weights;
-
 		DTYPE* weight;
 		DTYPE* bias;
-
 		DTYPE moment;
 		DTYPE eps;
-
 		DTYPE* cur_mean;
 		DTYPE* cur_var;
 		DTYPE* running_mean;
 		DTYPE* running_var;
+	public:
+		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
 		Node forward(Node input);

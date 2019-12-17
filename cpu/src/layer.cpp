@@ -429,12 +429,21 @@ namespace model_X
 			}
 		}
 		myfree(this->transform_matrix);
-		this->pre = input->creater;
-		out->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			out->creater = this;
+		}
 		return out;
 	}
+
 	void Conv_2d::random_init(int init_method)
 	{
+		srand(clock());
 		if (init_method == Uniform)
 		{
 			for (uint16_t c = 0; c < this->out_channels; c++)
@@ -664,6 +673,7 @@ namespace model_X
 	{
 		if (init_method == Uniform)
 		{
+			srand(clock());
 			for (uint32_t i = 0; i < this->out_size; i++)
 			{
 				for (uint32_t j = 0; j < this->in_size; j++)
@@ -713,8 +723,8 @@ namespace model_X
 		Node out = Node_creater::creat(input->batchsize, 1, 1, this->out_size);
 		if (this->require_gradients)
 		{
-			this->dL_din = input->copy(false);
-			
+			dout_dw = input->copy();
+			dL_din = input->copy(false);
 		}
 		if (this->parall_thread > 1 && this->out_size > this->parall_thread)
 		{
@@ -759,14 +769,43 @@ namespace model_X
 				}
 			}
 		}
-		this->pre = input->creater;
-		out->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			out->creater = this;
+		}
 		return out;
 	}
 
 	void Dense::backward(Optimizer::base_optimizer & opt)
 	{
-
+		if (!dL_dw_now)
+			dL_dw_now = new DTYPE[in_size*out_size*DBYTES]{};
+		if (!dL_db_now)
+			dL_db_now = new DTYPE[out_size*DBYTES]{};
+		for (uint16_t b = 0; b < dL_dout->batchsize; b++)
+		{
+			DTYPE* dL_dout_batch = dL_dout->get_batch_data(b);
+			DTYPE* dL_din_batch = dL_din->get_batch_data(b);
+			DTYPE* dout_dw_batch = dout_dw->get_batch_data(b);
+			for (uint32_t i = 0; i < out_size; i++)
+			{
+				if (this->with_bias)
+					dL_db_now[i] += dL_dout_batch[i];
+				DTYPE* dL_dw_data = dL_dw_now + i*in_size;
+				DTYPE* dout_din_data = weights + i*in_size_pad;
+				for (uint32_t j = 0; j < in_size; j++)
+				{
+					dL_din_batch[j] += dL_dout_batch[i] * dout_din_data[j];
+					dL_dw_data[j] += dL_dout_batch[i] * dout_dw_batch[j];
+				}
+			}
+		}
+		opt.apply_gradients(this);
 	}
 
 	void Dense::to_binay_file(ofstream& outfile)
@@ -810,12 +849,24 @@ namespace model_X
 	}
 	Dense::~Dense()
 	{
-		if (this->weights)	myfree(this->weights);
-		if (this->bias)	delete[] this->bias;
 		this->in_size = 0;
 		this->out_size = 0;
 		this->with_bias = false;
 		this->data_pad = 0;
+		time_step = 0;
+		remove_mylloc(weights);
+		remove_new(bias);
+		remove_new(dL_dw);
+		remove_new(dL_dw_1);
+		remove_new(dL_dw_2);
+		remove_new(dL_db);
+		remove_new(dL_db_1);
+		remove_new(dL_db_2);
+		remove_node(dout_dw);
+		remove_new(dL_dw_now);
+		remove_new(dL_db_now);
+		remove_node(dL_din);
+		remove_node(dL_dout);
 	}
 	Relu::Relu()
 	{
@@ -831,8 +882,15 @@ namespace model_X
 				if (res[j] < 0)
 					res[j] = 0;
 		}
-		this->pre - input->creater;
-		input->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
+		}
 		return input;
 	}
 
@@ -866,8 +924,15 @@ namespace model_X
 			for (uint32_t j = 0; j < input->batch_steps; j++)
 				res[j] = sigmoid(res[j]);
 		}
-		this->pre = input->creater;
-		input->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
+		}
 		return input;
 	}
 
@@ -898,8 +963,15 @@ namespace model_X
 		{
 			soft_max(input->get_batch_data(i), input->get_batch_data(i), input->batch_steps);
 		}
-		this->pre = input->creater;
-		input->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
+		}
 		return input;
 	}
 
@@ -998,8 +1070,15 @@ namespace model_X
 				}
 			}
 		}
-		this->pre = input->creater;
-		input->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
+		}
 		return input;
 	}
 
@@ -1095,8 +1174,15 @@ namespace model_X
 				}
 			}
 		}
-		this->pre = input->creater;
-		out->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			out->creater = this;
+		}
 		return out;
 	}
 
@@ -1156,8 +1242,15 @@ namespace model_X
 				}
 			}
 		}
-		this->pre = input->creater;
-		out->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			out->creater = this;
+		}
 		return out;
 	}
 
@@ -1199,8 +1292,15 @@ namespace model_X
 				if (random_uniform() <= rate)
 					input->get_batch_data(i)[j] = 0;
 			}
-		this->pre = input->creater;
-		input->creater = this;
+		if (this->require_gradients)
+		{
+			if (input->creater)
+			{
+				this->pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
+		}
 		return input;
 	}
 
@@ -1296,6 +1396,8 @@ namespace model_X
 		this->ID = LAYER_ID::CONCAT;
 		this->O1 = O1;
 		this->O2 = O2;
+		this->O1->increase_count_out();
+		this->O2->increase_count_out();
 	}
 
 	void Add::set_gradients()
