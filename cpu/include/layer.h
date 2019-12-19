@@ -314,7 +314,6 @@ namespace model_X
 	public:
 		Relu();
 		Node forward(Node input);
-
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 		string info();
@@ -352,12 +351,24 @@ namespace model_X
 		DTYPE* cur_var;
 		DTYPE* running_mean;
 		DTYPE* running_var;
+
+		node* dout_dw;
+		DTYPE* dout_din = nullptr;
+		DTYPE* dL_dw_now = nullptr;
+		DTYPE* dL_db_now = nullptr;
+		DTYPE* dL_dw = nullptr;
+		DTYPE* dL_db = nullptr;
+		DTYPE* dL_dw_1 = nullptr;
+		DTYPE* dL_db_1 = nullptr;
+		DTYPE* dL_dw_2 = nullptr;
+		DTYPE* dL_db_2 = nullptr;
+
 	public:
 		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
 		Node forward(Node input);
-
+		void backward(Optimizer::base_optimizer& opt);
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 
@@ -367,12 +378,14 @@ namespace model_X
 	};
 	class Max_pool final :public Operator
 	{
+	private:
+		uint8_t* dout_din;
 	public:
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Max_pool(uint8_t w = 2, uint8_t h = 2);
 		Node forward(Node input);
-
+		void backward(Optimizer::base_optimizer& opt);
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 
@@ -385,7 +398,7 @@ namespace model_X
 		uint8_t pool_h;
 		Ave_pool(uint8_t w = 2, uint8_t h = 2);
 		Node forward(Node input);
-
+		void backward(Optimizer::base_optimizer& opt);
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 		string info();
@@ -396,7 +409,7 @@ namespace model_X
 		DTYPE rate;
 		Drop_out(float rate = 0.5);
 		Node forward(Node input);
-
+		void backward(Optimizer::base_optimizer& opt);
 		void to_binay_file(ofstream& outfile);
 		void read_stream(ifstream& instream);
 		string info();
@@ -409,7 +422,6 @@ namespace model_X
 		Operator* O2;
 		Operator* start = nullptr;
 	public:
-		void backward(Optimizer::base_optimizer& opt);
 		Operator* get_pre();
 		Operator*& get_O1();
 		Operator*& get_O2();

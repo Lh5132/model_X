@@ -81,7 +81,8 @@ namespace model_X
 				throw "BCELoss requires single output";
 			}
 			DTYPE out = 0;
-			output->creater->dL_dout = output->copy(false);
+			if(!output->creater->dL_dout)
+				output->creater->dL_dout = output->copy(false);
 			for (uint16_t c = 0; c < output->batchsize; c++)
 			{
 				DTYPE exp_ = exp(0 - output->get_batch_data(c)[0]);

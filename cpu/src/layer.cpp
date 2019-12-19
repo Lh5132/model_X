@@ -87,27 +87,27 @@ namespace model_X
 
 	Operator* Operator::get_pre()
 	{
-		return this->pre;
+		return pre;
 	}
 	Node Operator::forward(Node input) { return Node(); }
 	void Operator::pass_gradients()
 	{
-		if (this->pre)
+		if (pre)
 		{
-			if (this->pre->count_out <= 1)
-				this->pre->dL_dout = this->dL_din;
+			if (pre->count_out <= 1)
+				pre->dL_dout = dL_din;
 			else
 			{
-				if (this->pre->dL_dout)
-					ADD(this->pre->dL_dout->data, this->dL_din->data, this->pre->dL_dout->data, this->dL_din->total_size);
+				if (pre->dL_dout)
+					ADD(pre->dL_dout->data, dL_din->data, pre->dL_dout->data, dL_din->total_size);
 				else
-					this->pre->dL_dout = this->dL_din;
+					pre->dL_dout = dL_din;
 			}
 		}
 	}
 	void Operator::pass_gradients(node* gradients)
 	{
-		this->pre->dL_dout = gradients;
+		pre->dL_dout = gradients;
 	}
 	void Operator::backward(Optimizer::base_optimizer& opt) {}
 	void Operator::zero_grad() {}
@@ -116,8 +116,8 @@ namespace model_X
 	void Operator::random_init(int init_method) {}
 	Operator::~Operator()
 	{
-		remove_node(this->dL_din);
-		remove_node(this->dL_dout);
+		remove_node(dL_din);
+		remove_node(dL_dout);
 	}
 #ifdef CUDA
 	void Operator::to_cuda() {}
@@ -156,7 +156,7 @@ namespace model_X
 		padding(conv_padding()),
 		with_bias(false)
 	{
-		this->ID = LAYER_ID::CONV_2D;
+		ID = LAYER_ID::CONV_2D;
 	}
 
 	Conv_2d::Conv_2d(
@@ -176,45 +176,45 @@ namespace model_X
 		padding(padding),
 		with_bias(with_bias)
 	{
-		this->ID = LAYER_ID::CONV_2D;
-		this->kernel_steps = this->kernel_size*in_channels;
-		uint8_t tail = this->kernel_steps % DATA_ALIGN;
+		ID = LAYER_ID::CONV_2D;
+		kernel_steps = kernel_size*in_channels;
+		uint8_t tail = kernel_steps % DATA_ALIGN;
 		if (tail == 0)
 		{
-			this->data_pad = 0;
-			this->kernel_steps_pad = this->kernel_steps;
+			data_pad = 0;
+			kernel_steps_pad = kernel_steps;
 		}
 		else
 		{
-			this->data_pad = DATA_ALIGN - tail;
-			this->kernel_steps_pad = this->kernel_steps + this->data_pad;
+			data_pad = DATA_ALIGN - tail;
+			kernel_steps_pad = kernel_steps + data_pad;
 		}
 
-		this->total_size = this->kernel_steps_pad * out_channels;
-		this->weights = (float*)mylloc(this->total_size * DBYTES, MALLOC_ALIGN);
+		total_size = kernel_steps_pad * out_channels;
+		weights = (float*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
 
-		if (this->kernel_steps_pad > this->kernel_steps)
+		if (kernel_steps_pad > kernel_steps)
 		{
-			for (int c = 0; c < this->out_channels; c++)
+			for (int c = 0; c < out_channels; c++)
 			{
-				for (uint32_t p = this->kernel_steps; p < this->kernel_steps_pad; p++)
-					this->get_channel_data(c)[p] = 0;
+				for (uint32_t p = kernel_steps; p < kernel_steps_pad; p++)
+					get_channel_data(c)[p] = 0;
 			}
 		}
-		if(this->with_bias)
-			this->bias = new DTYPE[this->out_channels]{};
-		else this->bias = nullptr;
+		if(with_bias)
+			bias = new DTYPE[out_channels]{};
+		else bias = nullptr;
 	}
 
 #ifdef CUDA
 	void Conv_2d::to_cuda()
 	{
-		this->is_cuda = true;
+		is_cuda = true;
 		conv_to_cuda(this);
 	}
 	void Conv_2d::to_cpu()
 	{
-		this->is_cuda = false;
+		is_cuda = false;
 		conv_to_cpu(this);
 	}
 #endif
@@ -296,12 +296,12 @@ namespace model_X
 
 	Node Conv_2d::forward(Node input)
 	{
-		if (input->channels != this->in_channels)
+		if (input->channels != in_channels)
 			throw "number of channels mismatch!";
 		if (padding.Padding_style == PADDING_STYLE::SAME)
 		{
-			uint8_t pad_w = (input->cols - 1)*strid.h - input->cols + this->k_w;
-			uint8_t pad_h = (input->rows - 1)*strid.w - input->rows + this->k_h;
+			uint8_t pad_w = (input->cols - 1)*strid.h - input->cols + k_w;
+			uint8_t pad_h = (input->rows - 1)*strid.w - input->rows + k_h;
 			if (pad_w % 2 == 0)
 				padding.left = padding.right = pad_w / 2;
 			else
@@ -317,43 +317,42 @@ namespace model_X
 				padding.bottom = pad_w / 2;
 			}
 		}
-		uint32_t out_rows = (input->rows + padding.top + padding.bottom - this->k_h) / strid.h + 1;
-		uint32_t out_cols = (input->cols + padding.left + padding.right - this->k_w) / strid.w + 1;
-		Node out = Node_creater::creat(input->batchsize, this->out_channels, out_rows, out_cols);
+		uint32_t out_rows = (input->rows + padding.top + padding.bottom - k_h) / strid.h + 1;
+		uint32_t out_cols = (input->cols + padding.left + padding.right - k_w) / strid.w + 1;
+		Node out = Node_creater::creat(input->batchsize, out_channels, out_rows, out_cols);
 		//构建中间矩阵
-		this->tm_cols = this->kernel_steps;
-		this->tm_cols_pad = this->kernel_steps_pad;
-		this->tm_rows = out_rows*out_cols;
-		uint32_t tm_batch_steps = this->tm_rows*this->tm_cols_pad;
+		tm_cols = kernel_steps;
+		tm_cols_pad = kernel_steps_pad;
+		tm_rows = out_rows*out_cols;
+		uint32_t tm_batch_steps = tm_rows*tm_cols_pad;
 		uint32_t tm_size = tm_batch_steps*input->batchsize;
-		this->transform_matrix = (DTYPE*)mylloc(tm_size*DBYTES, MALLOC_ALIGN);
-		if (this->require_gradients)
+		transform_matrix = (DTYPE*)mylloc(tm_size*DBYTES, MALLOC_ALIGN);
+		if (require_gradients)
 		{
-			if(!this->dout_dw)
-				this->dout_dw = (DTYPE*)mylloc(tm_cols*tm_rows*input->batchsize*DBYTES, DATA_ALIGN);
+			if(!dout_dw)
+				dout_dw = (DTYPE*)mylloc(tm_cols*tm_rows*input->batchsize*DBYTES, DATA_ALIGN);
 			if (!dL_din)
-				this->dL_din = input->copy(false);
+				dL_din = input->copy(false);
 			if(!dout_din_w_loc)
-				this->dout_din_w_loc = new uint16_t[input->channel_steps*this->kernel_size]{};
+				dout_din_w_loc = new uint16_t[input->channel_steps*kernel_size]{};
 			if (!dout_din_out_loc)
-				this->dout_din_out_loc = new uint16_t[input->channel_steps*this->kernel_size]{};
+				dout_din_out_loc = new uint16_t[input->channel_steps*kernel_size]{};
 			if(!dout_din_row_size)
-				this->dout_din_row_size = new uint16_t[input->channel_steps]{};
+				dout_din_row_size = new uint16_t[input->channel_steps]{};
 			out->require_grad();
 		}
-		dL_din->set_zero();
-		if (this->parall_thread > 1)
+		if (parall_thread > 1)
 		{
-			uint32_t base_n = out->channel_steps / this->parall_thread;
-			future<void>* fn = new future<void>[this->parall_thread];
-			for (uint8_t i = 0; i < this->parall_thread - 1; i++)
+			uint32_t base_n = out->channel_steps / parall_thread;
+			future<void>* fn = new future<void>[parall_thread];
+			for (uint8_t i = 0; i < parall_thread - 1; i++)
 			{
 				fn[i] = async(launch::async, __conv_async_helper, input, out, this,
 					tm_batch_steps, out_cols, base_n*i, base_n*(i + 1));
 			}
-			fn[this->parall_thread - 1] = async(launch::async, __conv_async_helper, input, out, this,
-				tm_batch_steps, out_cols, base_n*(this->parall_thread - 1), out->channel_steps);
-			for (int i = 0; i < this->parall_thread; i++)
+			fn[parall_thread - 1] = async(launch::async, __conv_async_helper, input, out, this,
+				tm_batch_steps, out_cols, base_n*(parall_thread - 1), out->channel_steps);
+			for (int i = 0; i < parall_thread; i++)
 				fn[i].wait();
 			delete[] fn;
 		}
@@ -363,77 +362,77 @@ namespace model_X
 			{
 				int out_row_loc = ii / out_cols;
 				int out_col_loc = ii - out_row_loc*out_cols;
-				int i = out_row_loc*this->strid.h - this->padding.top;
-				int j = out_col_loc*this->strid.w - this->padding.left;
-				uint32_t tm_row_loc = ii * this->tm_cols_pad;
+				int i = out_row_loc*strid.h - padding.top;
+				int j = out_col_loc*strid.w - padding.left;
+				uint32_t tm_row_loc = ii * tm_cols_pad;
 				DTYPE* dout_dw_channel;
 				uint32_t batch_loc, dw_where;
 				for (uint16_t b = 0; b < input->batchsize; b++)
 				{
 					uint32_t batch_start = b*tm_batch_steps;
-					if (this->is_gradiets())
+					if (is_gradiets())
 					{
-						batch_loc = b*this->tm_cols*this->tm_rows;
+						batch_loc = b*tm_cols*tm_rows;
 					}
 					for (uint16_t c = 0; c < input->channels; c++)
 					{
-						uint32_t tm_row_ch_loc = c*this->kernel_size;
+						uint32_t tm_row_ch_loc = c*kernel_size;
 						DTYPE* input_data = input->get_channel_data(b, c);
-						for (uint8_t krow = 0; krow < this->k_h; krow++)
+						for (uint8_t krow = 0; krow < k_h; krow++)
 						{
-							for (uint8_t kcol = 0; kcol < this->k_w; kcol++)
+							for (uint8_t kcol = 0; kcol < k_w; kcol++)
 							{
-								uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*this->k_w + kcol;
-								if (this->is_gradiets())
-									dw_where = batch_loc + (tm_row_ch_loc + krow*this->k_w + kcol)*tm_rows + ii;
+								uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*k_w + kcol;
+								if (is_gradiets())
+									dw_where = batch_loc + (tm_row_ch_loc + krow*k_w + kcol)*tm_rows + ii;
 								if ((i + krow) >= 0 && (i + krow) < input->rows && (j + kcol) >= 0 && (j + kcol) < input->cols)
 								{
-									this->transform_matrix[where] = *(input_data + (i + krow)*input->cols + j + kcol);
-									if (this->is_gradiets())
+									transform_matrix[where] = *(input_data + (i + krow)*input->cols + j + kcol);
+									if (is_gradiets())
 									{
-										dout_dw[dw_where] = this->transform_matrix[where];
+										dout_dw[dw_where] = transform_matrix[where];
 										if (c == 0)
 										{
 											uint32_t inp_loc = (i + krow)*input->cols + (j + kcol);
-											this->dout_din_w_loc[inp_loc*this->kernel_size + this->dout_din_row_size[inp_loc]] = krow*this->k_w + kcol;
-											this->dout_din_out_loc[inp_loc*this->kernel_size + this->dout_din_row_size[inp_loc]] = ii;
-											this->dout_din_row_size[inp_loc] += 1;
+											dout_din_w_loc[inp_loc*kernel_size + dout_din_row_size[inp_loc]] = krow*k_w + kcol;
+											dout_din_out_loc[inp_loc*kernel_size + dout_din_row_size[inp_loc]] = ii;
+											dout_din_row_size[inp_loc] += 1;
 										}
 									}
 								}
 								else
 								{
-									this->transform_matrix[where] = 0;
-									if (this->require_gradients)
+									transform_matrix[where] = 0;
+									if (require_gradients)
 										dout_dw[dw_where] = 0;
 								}
 							}
 						}
 					}
-					if (this->data_pad > 0)
+					if (data_pad > 0)
 					{
-						uint32_t pad_start = batch_start + tm_row_loc + input->channels * this->kernel_size;
-						for (uint8_t t = 0; t < this->data_pad; t++)
-							this->transform_matrix[pad_start + t] = 0;
+						uint32_t pad_start = batch_start + tm_row_loc + input->channels * kernel_size;
+						for (uint8_t t = 0; t < data_pad; t++)
+							transform_matrix[pad_start + t] = 0;
 					}
 					for (uint16_t cc = 0; cc < out->channels; cc++)
 					{
-						if (this->with_bias)
-							out->get_channel_data(b, cc)[ii] = MUL_ADD(this->get_channel_data(cc),
-								this->transform_matrix + batch_start + tm_row_loc, this->tm_cols_pad) + this->bias[cc];
+						if (with_bias)
+							out->get_channel_data(b, cc)[ii] = MUL_ADD(get_channel_data(cc),
+								transform_matrix + batch_start + tm_row_loc, tm_cols_pad) + bias[cc];
 						else
-							out->get_channel_data(b, cc)[ii] = MUL_ADD(this->get_channel_data(cc),
-								this->transform_matrix + batch_start + tm_row_loc, this->tm_cols_pad);
+							out->get_channel_data(b, cc)[ii] = MUL_ADD(get_channel_data(cc),
+								transform_matrix + batch_start + tm_row_loc, tm_cols_pad);
 					}
 				}
 			}
 		}
-		myfree(this->transform_matrix);
-		if (this->require_gradients)
+		myfree(transform_matrix);
+		if (require_gradients)
 		{
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			out->creater = this;
@@ -446,26 +445,26 @@ namespace model_X
 		srand(clock());
 		if (init_method == Uniform)
 		{
-			for (uint16_t c = 0; c < this->out_channels; c++)
+			for (uint16_t c = 0; c < out_channels; c++)
 			{
-				for (uint32_t i = 0; i < this->kernel_steps; i++)
+				for (uint32_t i = 0; i < kernel_steps; i++)
 				{
-					this->get_channel_data(c)[i] = random_uniform();
+					get_channel_data(c)[i] = random_uniform();
 				}
 			}
 		}
 		else if (init_method == Normal)
 		{
-			for (uint16_t c = 0; c < this->out_channels; c++)
+			for (uint16_t c = 0; c < out_channels; c++)
 			{
-				for (uint32_t i = 0; i < this->kernel_steps; i++)
+				for (uint32_t i = 0; i < kernel_steps; i++)
 				{
-					this->get_channel_data(c)[i] = random_gaussrand(0, 1);
+					get_channel_data(c)[i] = random_gaussrand(0, 1);
 				}
-				if (this->kernel_steps_pad > this->kernel_steps)
+				if (kernel_steps_pad > kernel_steps)
 				{
-					for (uint32_t p = this->kernel_steps; p < this->kernel_steps_pad; p++)
-						this->get_channel_data(c)[p] = 0;
+					for (uint32_t p = kernel_steps; p < kernel_steps_pad; p++)
+						get_channel_data(c)[p] = 0;
 				}
 			}
 		}
@@ -475,8 +474,8 @@ namespace model_X
 	void Conv_2d::zero_grad()
 	{
 		clear_concators(this);
-		fill(this->dL_din->data, this->dL_din->data + this->dL_din->total_size, 0.0f);
-		fill(this->dL_dout->data, this->dL_dout->data + this->dL_dout->total_size, 0.0f);
+		fill(dL_din->data, dL_din->data + dL_din->total_size, 0.0f);
+		fill(dL_dout->data, dL_dout->data + dL_dout->total_size, 0.0f);
 	}
 
 	void Conv_2d::backward(Optimizer::base_optimizer& opt)
@@ -485,36 +484,36 @@ namespace model_X
 		uint32_t dw_size = kernel_steps*out_channels;
 		if(!dL_dw_now)
 			dL_dw_now = new DTYPE[dw_size]{};
-		if (this->with_bias)
+		if (with_bias)
 			if(!dL_db_now)
-				dL_db_now = new DTYPE[this->out_channels]{};
-		for (uint16_t b = 0; b < this->dL_dout->batchsize; b++)
+				dL_db_now = new DTYPE[out_channels]{};
+		for (uint16_t b = 0; b < dL_dout->batchsize; b++)
 		{
-			DTYPE* dout_dw_batch = this->dout_dw + b * tm_cols*tm_rows;
-			for (uint16_t c = 0; c < this->out_channels; c++)
+			DTYPE* dout_dw_batch = dout_dw + b * tm_cols*tm_rows;
+			for (uint16_t c = 0; c < out_channels; c++)
 			{
-				DTYPE* channel_w = this->get_channel_data(c);
-				DTYPE* dL_dw_channel_data = dL_dw_now + c*this->kernel_steps;
-				DTYPE* dL_dout_channle_data = this->dL_dout->get_channel_data(b, c);
-				for (uint32_t i = 0; i < this->kernel_steps; i++)
+				DTYPE* channel_w = get_channel_data(c);
+				DTYPE* dL_dw_channel_data = dL_dw_now + c*kernel_steps;
+				DTYPE* dL_dout_channle_data = dL_dout->get_channel_data(b, c);
+				for (uint32_t i = 0; i < kernel_steps; i++)
 				{
-					dL_dw_channel_data[i] += MUL_ADD(dout_dw_batch+i*tm_rows, dL_dout_channle_data, this->tm_rows);
+					dL_dw_channel_data[i] += MUL_ADD(dout_dw_batch+i*tm_rows, dL_dout_channle_data, tm_rows);
 				}
-				if (this->with_bias)
+				if (with_bias)
 				{
-					dL_db_now[c] += SUM(dL_dout_channle_data, this->dL_dout->channel_steps);
+					dL_db_now[c] += SUM(dL_dout_channle_data, dL_dout->channel_steps);
 				}
-				for (uint16_t i = 0; i < this->dL_din->channels; i++)
+				for (uint16_t i = 0; i < dL_din->channels; i++)
 				{
-					DTYPE* dl_din_channel = this->dL_din->get_channel_data(b,i);
-					for (uint32_t j = 0; j < this->dL_din->channel_steps; j++)
+					DTYPE* dl_din_channel = dL_din->get_channel_data(b,i);
+					for (uint32_t j = 0; j < dL_din->channel_steps; j++)
 					{
 						DTYPE temp = 0;
-						uint32_t loc = j*this->kernel_size;
-						for (uint16_t k = 0; k < this->dout_din_row_size[j]; k++)
+						uint32_t loc = j*kernel_size;
+						for (uint16_t k = 0; k < dout_din_row_size[j]; k++)
 						{
-							temp += channel_w[i*this->kernel_size+this->dout_din_w_loc[loc+k]] * \
-								dL_dout_channle_data[this->dout_din_out_loc[loc+k]];
+							temp += channel_w[i*kernel_size+dout_din_w_loc[loc+k]] * \
+								dL_dout_channle_data[dout_din_out_loc[loc+k]];
 						}
 						dl_din_channel[j] += temp;
 					}
@@ -530,13 +529,13 @@ namespace model_X
 	}
 	void Conv_2d::print_weight()
 	{
-		if (this->weights)
+		if (weights)
 		{
-			for (uint16_t i = 0; i < this->out_channels; i++)
+			for (uint16_t i = 0; i < out_channels; i++)
 			{
-				for (uint32_t j = 0; j < this->kernel_steps; j++)
+				for (uint32_t j = 0; j < kernel_steps; j++)
 				{
-					cout << this->get_channel_data(i)[j] << ",";
+					cout << get_channel_data(i)[j] << ",";
 				}
 				cout << endl;
 			}
@@ -544,60 +543,60 @@ namespace model_X
 	}
 	void Conv_2d::print_bias()
 	{
-		if (this->bias)
+		if (bias)
 		{
-			for (uint16_t i = 0; i < this->out_channels; i++)
-				cout << this->bias[i] << ",";
+			for (uint16_t i = 0; i < out_channels; i++)
+				cout << bias[i] << ",";
 		}
 		cout << endl;
 	}
 	void Conv_2d::to_binay_file(ofstream & outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&this->in_channels, sizeof(uint16_t));
-		outfile.write((char*)&this->out_channels, sizeof(uint16_t));
-		outfile.write((char*)&this->k_w, sizeof(uint8_t));
-		outfile.write((char*)&this->k_h, sizeof(uint8_t));
-		outfile.write((char*)&this->strid, sizeof(conv_stride));
-		outfile.write((char*)&this->padding, sizeof(conv_padding));
-		outfile.write((char*)this->weights, this->total_size * DBYTES);
-		outfile.write((char*)&this->with_bias, sizeof(bool));
-		if (this->with_bias)
-			outfile.write((char*)this->bias, this->out_channels*DBYTES);
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&in_channels, sizeof(uint16_t));
+		outfile.write((char*)&out_channels, sizeof(uint16_t));
+		outfile.write((char*)&k_w, sizeof(uint8_t));
+		outfile.write((char*)&k_h, sizeof(uint8_t));
+		outfile.write((char*)&strid, sizeof(conv_stride));
+		outfile.write((char*)&padding, sizeof(conv_padding));
+		outfile.write((char*)weights, total_size * DBYTES);
+		outfile.write((char*)&with_bias, sizeof(bool));
+		if (with_bias)
+			outfile.write((char*)bias, out_channels*DBYTES);
 	}
 
 	void Conv_2d::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&(this->in_channels), sizeof(uint16_t));
-		instream.read((char*)&(this->out_channels), sizeof(uint16_t));
-		instream.read((char*)&(this->k_w), sizeof(uint8_t));
-		instream.read((char*)&(this->k_h), sizeof(uint8_t));
-		instream.read((char*)&(this->strid), sizeof(conv_stride));
-		instream.read((char*)&(this->padding), sizeof(conv_padding));
+		instream.read((char*)&(in_channels), sizeof(uint16_t));
+		instream.read((char*)&(out_channels), sizeof(uint16_t));
+		instream.read((char*)&(k_w), sizeof(uint8_t));
+		instream.read((char*)&(k_h), sizeof(uint8_t));
+		instream.read((char*)&(strid), sizeof(conv_stride));
+		instream.read((char*)&(padding), sizeof(conv_padding));
 
-		this->kernel_size = this->k_w*this->k_h;
-		this->kernel_steps = this->kernel_size*this->in_channels;
-		uint8_t tail = this->kernel_steps % DATA_ALIGN;
+		kernel_size = k_w*k_h;
+		kernel_steps = kernel_size*in_channels;
+		uint8_t tail = kernel_steps % DATA_ALIGN;
 		if (tail == 0)
 		{
-			this->data_pad = 0;
-			this->kernel_steps_pad = this->kernel_steps;
+			data_pad = 0;
+			kernel_steps_pad = kernel_steps;
 		}
 		else
 		{
-			this->data_pad = DATA_ALIGN - tail;
-			this->kernel_steps_pad = this->kernel_steps + this->data_pad;
+			data_pad = DATA_ALIGN - tail;
+			kernel_steps_pad = kernel_steps + data_pad;
 		}
-		this->total_size = this->kernel_steps_pad * this->out_channels;
-		this->weights = (float*)mylloc(this->total_size * DBYTES, MALLOC_ALIGN);
+		total_size = kernel_steps_pad * out_channels;
+		weights = (float*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
 
 
-		instream.read((char*)(this->weights), this->total_size * DBYTES);
-		instream.read((char*)&(this->with_bias), sizeof(bool));
-		if (this->with_bias)
+		instream.read((char*)(weights), total_size * DBYTES);
+		instream.read((char*)&(with_bias), sizeof(bool));
+		if (with_bias)
 		{
-			this->bias = new DTYPE[this->out_channels]{};
-			instream.read((char*)(this->bias), this->out_channels*DBYTES);
+			bias = new DTYPE[out_channels]{};
+			instream.read((char*)(bias), out_channels*DBYTES);
 		}
 	}
 
@@ -606,25 +605,25 @@ namespace model_X
 		string out = "";
 		char data[200];
 		sprintf(data, "Operator Conv2d\ninput channels: %d\noutput channels: %d\nkernel size: [%d,%d]\nstrid: [%d,%d]\npadding: [%d,%d,%d,%d]\n",
-			this->in_channels,this->out_channels,this->k_w,this->k_h,this->strid.w,this->strid.h,this->padding.left,this->padding.top,
-			this->padding.right,this->padding.bottom);
+			in_channels,out_channels,k_w,k_h,strid.w,strid.h,padding.left,padding.top,
+			padding.right,padding.bottom);
 		out += data;
 		return out;
 	}
 
 	Conv_2d::~Conv_2d()
 	{
-		this->k_w = 0;
-		this->k_h = 0;
-		this->in_channels = 0;
-		this->out_channels = 0;
-		this->total_size = 0;
-		this->kernel_size = 0;
-		this->kernel_steps = 0;
-		this->kernel_steps_pad = 0;
-		this->data_pad = 0;
-		this->tm_rows = 0;
-		this->tm_cols = 0;
+		k_w = 0;
+		k_h = 0;
+		in_channels = 0;
+		out_channels = 0;
+		total_size = 0;
+		kernel_size = 0;
+		kernel_steps = 0;
+		kernel_steps_pad = 0;
+		data_pad = 0;
+		tm_rows = 0;
+		tm_cols = 0;
 		remove_mylloc(weights);
 		remove_mylloc(transform_matrix);
 		remove_new(bias);
@@ -651,54 +650,54 @@ namespace model_X
 		data_pad(0),
 		in_size_pad(0)
 	{
-		this->ID = LAYER_ID::DENSE;
+		ID = LAYER_ID::DENSE;
 	}
 	Dense::Dense(uint32_t in_size, uint32_t out_size, bool with_bias):
 		in_size(in_size),
 		out_size(out_size),
 		with_bias(with_bias)
 	{
-		this->ID = LAYER_ID::DENSE;
+		ID = LAYER_ID::DENSE;
 		uint8_t tail = in_size%DATA_ALIGN;
-		if (tail == 0) this->data_pad = 0;
-		else this->data_pad = DATA_ALIGN - tail;
-		this->in_size_pad = this->in_size + this->data_pad;
-		this->total_size = this->in_size_pad*out_size;
-		this->weights = (DTYPE*)mylloc(this->total_size*DBYTES, MALLOC_ALIGN);
-		if(this->with_bias)
-			this->bias = new DTYPE[this->out_size]{};
-		else this->bias = nullptr;
+		if (tail == 0) data_pad = 0;
+		else data_pad = DATA_ALIGN - tail;
+		in_size_pad = in_size + data_pad;
+		total_size = in_size_pad*out_size;
+		weights = (DTYPE*)mylloc(total_size*DBYTES, MALLOC_ALIGN);
+		if(with_bias)
+			bias = new DTYPE[out_size]{};
+		else bias = nullptr;
 	}
 	void Dense::random_init(int init_method)
 	{
 		if (init_method == Uniform)
 		{
 			srand(clock());
-			for (uint32_t i = 0; i < this->out_size; i++)
+			for (uint32_t i = 0; i < out_size; i++)
 			{
-				for (uint32_t j = 0; j < this->in_size; j++)
+				for (uint32_t j = 0; j < in_size; j++)
 				{
-					this->get_channel_data(i)[j] = random_uniform();
+					get_channel_data(i)[j] = random_uniform();
 				}
-				if (this->data_pad > 0)
+				if (data_pad > 0)
 				{
-					for (uint8_t j = 0; j < this->data_pad; j++)
-						this->get_channel_data(i)[this->in_size + j] = 0;
+					for (uint8_t j = 0; j < data_pad; j++)
+						get_channel_data(i)[in_size + j] = 0;
 				}
 			}
 		}
 		else if (init_method == Normal)
 		{
-			for (uint32_t i = 0; i < this->out_size; i++)
+			for (uint32_t i = 0; i < out_size; i++)
 			{
-				for (uint32_t j = 0; j < this->in_size; j++)
+				for (uint32_t j = 0; j < in_size; j++)
 				{
-					this->get_channel_data(i)[j] = random_gaussrand(0,1);
+					get_channel_data(i)[j] = random_gaussrand(0,1);
 				}
-				if (this->data_pad > 0)
+				if (data_pad > 0)
 				{
-					for (uint8_t j = 0; j < this->data_pad; j++)
-						this->get_channel_data(i)[this->in_size + j] = 0;
+					for (uint8_t j = 0; j < data_pad; j++)
+						get_channel_data(i)[in_size + j] = 0;
 				}
 			}
 		}
@@ -718,44 +717,46 @@ namespace model_X
 
 	Node Dense::forward(Node input)
 	{
-		if (this->in_size_pad != input->batch_steps_pad)
+		if (in_size_pad != input->batch_steps_pad)
 			throw "dims miss match!";
-		Node out = Node_creater::creat(input->batchsize, 1, 1, this->out_size);
-		if (this->require_gradients)
+		Node out = Node_creater::creat(input->batchsize, 1, 1, out_size);
+		if (require_gradients)
 		{
-			dout_dw = input->copy();
-			dL_din = input->copy(false);
+			if(!dout_dw)
+				dout_dw = input->copy();
+			if(!dL_din)
+				dL_din = input->copy(false);
 		}
-		if (this->parall_thread > 1 && this->out_size > this->parall_thread)
+		if (parall_thread > 1 && out_size > parall_thread)
 		{
-			future<void>* fn = new future<void>[this->parall_thread];
-			uint32_t base_n = this->out_size / this->parall_thread;
+			future<void>* fn = new future<void>[parall_thread];
+			uint32_t base_n = out_size / parall_thread;
 			for (uint16_t b = 0; b < input->batchsize; b++)
 			{
 				DTYPE* res = out->get_batch_data(b);
 				DTYPE* inp = input->get_batch_data(b);
-				for (uint8_t i = 0; i < this->parall_thread - 1; i++)
+				for (uint8_t i = 0; i < parall_thread - 1; i++)
 				{
 					fn[i] = async(launch::async, __dense_async_helper, input, out, this,
 						res, inp, base_n*i, base_n*(i + 1));
 				}
-				fn[this->parall_thread - 1] = async(launch::async, __dense_async_helper, input, out, this,
-					res, inp, base_n*(this->parall_thread - 1), this->out_size);
-				for (int i = 0; i < this->parall_thread; i++)
+				fn[parall_thread - 1] = async(launch::async, __dense_async_helper, input, out, this,
+					res, inp, base_n*(parall_thread - 1), out_size);
+				for (int i = 0; i < parall_thread; i++)
 					fn[i].wait();
 			}
 			delete[] fn;
 		}
 		else
 		{
-			if (this->with_bias)
+			if (with_bias)
 			{
 				for (uint16_t i = 0; i < input->batchsize; i++)
 				{
 					DTYPE* res = out->get_batch_data(i);
 					DTYPE* inp = input->get_batch_data(i);
-					for (uint32_t j = 0; j < this->out_size; j++)
-						res[j] = MUL_ADD(this->get_channel_data(j), inp, this->in_size_pad) + this->bias[j];
+					for (uint32_t j = 0; j < out_size; j++)
+						res[j] = MUL_ADD(get_channel_data(j), inp, in_size_pad) + bias[j];
 				}
 			}
 			else
@@ -764,16 +765,16 @@ namespace model_X
 				{
 					DTYPE* res = out->get_batch_data(i);
 					DTYPE* inp = input->get_batch_data(i);
-					for (uint32_t j = 0; j < this->out_size; j++)
-						res[j] = MUL_ADD(this->get_channel_data(j), inp, this->in_size_pad);
+					for (uint32_t j = 0; j < out_size; j++)
+						res[j] = MUL_ADD(get_channel_data(j), inp, in_size_pad);
 				}
 			}
 		}
-		if (this->require_gradients)
+		if (require_gradients)
 		{
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			out->creater = this;
@@ -794,7 +795,7 @@ namespace model_X
 			DTYPE* dout_dw_batch = dout_dw->get_batch_data(b);
 			for (uint32_t i = 0; i < out_size; i++)
 			{
-				if (this->with_bias)
+				if (with_bias)
 					dL_db_now[i] += dL_dout_batch[i];
 				DTYPE* dL_dw_data = dL_dw_now + i*in_size;
 				DTYPE* dout_din_data = weights + i*in_size_pad;
@@ -810,49 +811,49 @@ namespace model_X
 
 	void Dense::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&this->in_size, sizeof(uint32_t));
-		outfile.write((char*)&this->out_size, sizeof(uint32_t));
-		outfile.write((char*)&this->with_bias, sizeof(bool));
-		outfile.write((char*)this->weights, this->total_size * DBYTES);
-		if(this->with_bias)
-			outfile.write((char*)this->bias, this->out_size * DBYTES);
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&in_size, sizeof(uint32_t));
+		outfile.write((char*)&out_size, sizeof(uint32_t));
+		outfile.write((char*)&with_bias, sizeof(bool));
+		outfile.write((char*)weights, total_size * DBYTES);
+		if(with_bias)
+			outfile.write((char*)bias, out_size * DBYTES);
 	}
 	void Dense::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&(this->in_size), sizeof(uint32_t));
-		instream.read((char*)&(this->out_size), sizeof(uint32_t));
-		instream.read((char*)&(this->with_bias), sizeof(bool));
-		uint8_t tail = this->in_size%DATA_ALIGN;
-		if (tail == 0) this->data_pad = 0;
-		else this->data_pad = DATA_ALIGN - tail;
-		this->in_size_pad = this->in_size + this->data_pad;
-		this->total_size = this->in_size_pad*out_size;
-		this->weights = (DTYPE*)mylloc(this->total_size*DBYTES, MALLOC_ALIGN);
-		instream.read((char*)(this->weights), this->total_size*DBYTES);
-		if (this->with_bias)
+		instream.read((char*)&(in_size), sizeof(uint32_t));
+		instream.read((char*)&(out_size), sizeof(uint32_t));
+		instream.read((char*)&(with_bias), sizeof(bool));
+		uint8_t tail = in_size%DATA_ALIGN;
+		if (tail == 0) data_pad = 0;
+		else data_pad = DATA_ALIGN - tail;
+		in_size_pad = in_size + data_pad;
+		total_size = in_size_pad*out_size;
+		weights = (DTYPE*)mylloc(total_size*DBYTES, MALLOC_ALIGN);
+		instream.read((char*)(weights), total_size*DBYTES);
+		if (with_bias)
 		{
-			this->bias = new DTYPE[this->out_size]{};
-			instream.read((char*)(this->bias), this->out_size*DBYTES);
+			bias = new DTYPE[out_size]{};
+			instream.read((char*)(bias), out_size*DBYTES);
 		}
-		else this->bias = nullptr;
+		else bias = nullptr;
 	}
 	string Dense::info()
 	{
 		string out = "";
 		char data[150];
 		sprintf(data, "Operator:Dense\ninput channels: %d\noutput channels: %d\n",
-			this->in_size, this->out_size);
+			in_size, out_size);
 		out += data;
 		return out;
 
 	}
 	Dense::~Dense()
 	{
-		this->in_size = 0;
-		this->out_size = 0;
-		this->with_bias = false;
-		this->data_pad = 0;
+		in_size = 0;
+		out_size = 0;
+		with_bias = false;
+		data_pad = 0;
 		time_step = 0;
 		remove_mylloc(weights);
 		remove_new(bias);
@@ -870,33 +871,55 @@ namespace model_X
 	}
 	Relu::Relu()
 	{
-		this->ID = LAYER_ID::RELU;
+		ID = LAYER_ID::RELU;
 	}
 
 	Node Relu::forward(Node input)
 	{
-		for (uint16_t i = 0; i < input->batchsize; i++)
+		if (!require_gradients)
 		{
-			DTYPE* res = input->get_batch_data(i);
-			for (uint32_t j = 0; j < input->batch_steps; j++)
-				if (res[j] < 0)
-					res[j] = 0;
+			for (uint16_t i = 0; i < input->batchsize; i++)
+			{
+				DTYPE* res = input->get_batch_data(i);
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+					if (res[j] < 0)
+						res[j] = 0;
+			}
+			return input;
 		}
-		if (this->require_gradients)
+		else
 		{
+			if (!dL_din)
+				dL_din = input->copy();
+			for (uint16_t i = 0; i < input->batchsize; i++)
+			{
+				uint32_t batch_loc = i*input->batch_steps_pad;
+				DTYPE* res = input->data + batch_loc;
+				DTYPE* dL_din_data = dL_din->data + batch_loc;
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					if (res[j] < 0)
+					{
+						res[j] = 0;
+						dL_din_data[j] = 0;
+					}
+					else
+						dL_din_data[j] = 1;
+				}
+			}
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			input->creater = this;
+			return input;
 		}
-		return input;
 	}
 
 	void Relu::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
+		outfile.write((char*)&ID, sizeof(uint8_t));
 	}
 
 	void Relu::read_stream(ifstream& instream)
@@ -912,33 +935,50 @@ namespace model_X
 
 	Sigmoid::Sigmoid()
 	{
-		this->ID = LAYER_ID::SIGMOID;
+		ID = LAYER_ID::SIGMOID;
 	}
 
 	Node Sigmoid::forward(Node input)
 	{
-
-		for (uint16_t i = 0; i < input->batchsize; i++)
+		if (!require_gradients)
 		{
-			DTYPE* res = input->get_batch_data(i);
-			for (uint32_t j = 0; j < input->batch_steps; j++)
-				res[j] = sigmoid(res[j]);
+			for (uint16_t i = 0; i < input->batchsize; i++)
+			{
+				DTYPE* res = input->get_batch_data(i);
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+					res[j] = sigmoid(res[j]);
+			}
+			return input;
 		}
-		if (this->require_gradients)
+		else
 		{
+			if (!dL_din)
+				dL_din = input->copy();
+			for (uint16_t i = 0; i < input->batchsize; i++)
+			{
+				uint32_t batch_loc = i*input->batch_steps_pad;
+				DTYPE* res = input->data + batch_loc;
+				DTYPE* dL_din_data = dL_din->data + batch_loc;
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					DTYPE exp_ = exp(0 - res[i]);
+					res[i] = 1 / (1 + exp_);
+					dL_din_data[j] = pow(res[i], 2)*exp_;
+				}
+			}
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			input->creater = this;
+			return input;
 		}
-		return input;
 	}
 
 	void Sigmoid::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
+		outfile.write((char*)&ID, sizeof(uint8_t));
 	}
 
 	void Sigmoid::read_stream(ifstream& instream)
@@ -954,20 +994,42 @@ namespace model_X
 
 	Soft_max::Soft_max()
 	{
-		this->ID = LAYER_ID::SOFT_MAX;
+		ID = LAYER_ID::SOFT_MAX;
 	}
 
 	Node Soft_max::forward(Node input)
 	{
+		if(!require_gradients)
 		for (int i = 0; i < input->batchsize; i++)
 		{
 			soft_max(input->get_batch_data(i), input->get_batch_data(i), input->batch_steps);
 		}
-		if (this->require_gradients)
+		else
 		{
+			if(!dL_din)
+				dL_din = input->copy();
+			for (int i = 0; i < input->batchsize; i++)
+			{
+				uint32_t batch_loc = i*input->batch_steps_pad;
+				DTYPE* res = input->data + batch_loc;
+				DTYPE* dL_din_data = dL_din->data + batch_loc;
+				DTYPE* out_temp = new DTYPE[input->batch_steps]{};
+				DTYPE total = 0;
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					out_temp[j] = exp(res[j]);
+					total += out_temp[j];
+				}
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					res[j] = out_temp[j] / total;
+					dL_din_data[i] = out_temp[j] * (total - out_temp[j]) / pow(total, 2);
+				}
+				delete[] out_temp;
+			}
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			input->creater = this;
@@ -977,7 +1039,7 @@ namespace model_X
 
 	void Soft_max::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
+		outfile.write((char*)&ID, sizeof(uint8_t));
 	}
 	void Soft_max::read_stream(ifstream& instream)
 	{
@@ -999,7 +1061,7 @@ namespace model_X
 		running_mean(nullptr),
 		running_var(nullptr) 
 	{
-		this->ID = LAYER_ID::BN;
+		ID = LAYER_ID::BN;
 	}
 	Batch_normal_2d::Batch_normal_2d(uint16_t channels, DTYPE moment, DTYPE eps, bool with_weights)
 		:with_weights(with_weights),
@@ -1009,50 +1071,101 @@ namespace model_X
 		weight(nullptr),
 		bias(nullptr)
 	{
-		this->ID = LAYER_ID::BN;
-		this->cur_mean = new DTYPE[this->channels]{};
-		this->cur_var = new DTYPE[this->channels]{};
-		this->running_mean = new DTYPE[this->channels]{};
-		this->running_var = new DTYPE[this->channels]{};
-		if (this->with_weights)
+		ID = LAYER_ID::BN;
+		cur_mean = new DTYPE[channels]{};
+		cur_var = new DTYPE[channels]{};
+		running_mean = new DTYPE[channels]{};
+		running_var = new DTYPE[channels]{};
+		if (with_weights)
 		{
-			this->weight = new DTYPE[this->channels]{};
-			this->bias = new DTYPE[this->channels]{};
-			fill(this->weight, this->weight + this->channels, 1.0f);
+			weight = new DTYPE[channels]{};
+			bias = new DTYPE[channels]{};
+			fill(weight, weight + channels, 1.0f);
 		}
 	}
 
 	Node Batch_normal_2d::forward(Node input)
 	{
 
-		if (this->require_gradients)
+		if (require_gradients)
 		{
 			DTYPE temp_M, temp_V;
-			for (uint16_t i = 0; i < input->channels; i++)
+			if (!dL_din)
+				dL_din = input->copy(false);
+			if (!dout_din)
+				dout_din = new DTYPE[channels]{};
+			if (with_weights)
 			{
-				temp_M = 0;
-				temp_V = 0;
-				for (uint16_t j = 0; j < input->batchsize; j++)
+				if (!dout_dw)
+					dout_dw = input->copy(false);
+				for (uint16_t i = 0; i < input->channels; i++)
 				{
-					temp_M += SUM(input->get_channel_data(j, i), input->channel_steps) / input->channel_steps / input->batchsize;
-				}
-				for (uint16_t j = 0; j < input->batchsize; j++)
-					temp_V += var_normal(input->get_channel_data(j, i), temp_M, input->channel_steps) / input->batchsize;
-				this->running_mean[i] = (1 - this->moment)*this->cur_mean[i] + this->moment*temp_M;
-				this->running_var[i] = (1 - this->moment)*this->cur_var[i] + this->moment*temp_V;
-				this->cur_mean[i] = temp_M;
-				this->cur_var[i] = temp_V;
-				for (uint16_t j = 0; j < input->batchsize; j++)
-				{
-					DTYPE* res = input->get_channel_data(j, i);
-					for (uint32_t k = 0; k < input->channel_steps; k++)
+					temp_M = 0;
+					temp_V = 0;
+					uint32_t channel_loc = i*input->channel_steps;
+					for (uint16_t j = 0; j < input->batchsize; j++)
 					{
-						res[k] = (res[k] - temp_M) / sqrt(temp_V + this->eps);
+						uint32_t loc = j*input->batch_steps_pad + channel_loc;
+						temp_M += SUM(input->data + loc, input->channel_steps) / input->channel_steps / input->batchsize;
 					}
-					if (this->with_weights)
-						LINEAR_MUL_ADD(res, this->weight[i], this->bias[i], input->channel_steps);
+					for (uint16_t j = 0; j < input->batchsize; j++)
+					{
+						uint32_t loc = j*input->batch_steps_pad + channel_loc;
+						temp_V += var_normal(input->data + loc, temp_M, input->channel_steps) / input->batchsize;
+					}
+					running_mean[i] = (1 - moment)*cur_mean[i] + moment*temp_M;
+					running_var[i] = (1 - moment)*cur_var[i] + moment*temp_V;
+					cur_mean[i] = temp_M;
+					cur_var[i] = temp_V;
+					DTYPE var_sqrt = sqrt(temp_V + eps);
+					dout_din[i] = weight[i] / var_sqrt;
+					for (uint16_t j = 0; j < input->batchsize; j++)
+					{
+						uint32_t loc = j*input->batch_steps_pad + channel_loc;
+						DTYPE* res = input->data + loc;
+						DTYPE* dout_dw_data = dout_dw->data + loc;
+						for (uint32_t k = 0; k < input->channel_steps; k++)
+						{
+							res[k] = (res[k] - temp_M) / var_sqrt;
+							dout_dw_data[k] = res[k];
+						}
+						LINEAR_MUL_ADD(res, weight[i], bias[i], input->channel_steps);
+					}
 				}
 			}
+			else
+			{
+				for (uint16_t i = 0; i < input->channels; i++)
+				{
+					temp_M = 0;
+					temp_V = 0;
+					uint32_t channel_loc = i*input->channel_steps;
+					for (uint16_t j = 0; j < input->batchsize; j++)
+					{
+						temp_M += SUM(input->get_channel_data(j, i), input->channel_steps) / input->channel_steps / input->batchsize;
+					}
+					for (uint16_t j = 0; j < input->batchsize; j++)
+						temp_V += var_normal(input->get_channel_data(j, i), temp_M, input->channel_steps) / input->batchsize;
+					running_mean[i] = (1 - moment)*cur_mean[i] + moment*temp_M;
+					running_var[i] = (1 - moment)*cur_var[i] + moment*temp_V;
+					cur_mean[i] = temp_M;
+					cur_var[i] = temp_V;
+					DTYPE var_sqrt = sqrt(temp_V + eps);
+					dout_din[i] = 1 / var_sqrt;
+					for (uint16_t j = 0; j < input->batchsize; j++)
+					{
+						DTYPE* res = input->data + j*input->batch_steps_pad + channel_loc;
+						for (uint32_t k = 0; k < input->channel_steps; k++)
+							res[k] = (res[k] - temp_M) / var_sqrt;
+					}
+				}
+			}
+			if (input->creater)
+			{
+				pre = input->creater;
+				input->creater->increase_count_out();
+			}
+			input->creater = this;
 		}
 		else
 		{
@@ -1063,58 +1176,94 @@ namespace model_X
 					DTYPE* res = input->get_channel_data(j, i);
 					for (uint32_t k = 0; k < input->channel_steps; k++)
 					{
-						res[k] = (res[k] - this->running_mean[i]) / sqrt(this->running_var[i] + this->eps);
+						res[k] = (res[k] - running_mean[i]) / sqrt(running_var[i] + eps);
 					}
-					if (this->with_weights)
-						LINEAR_MUL_ADD(res, this->weight[i], this->bias[i], input->channel_steps);
+					if (with_weights)
+						LINEAR_MUL_ADD(res, weight[i], bias[i], input->channel_steps);
 				}
 			}
-		}
-		if (this->require_gradients)
-		{
-			if (input->creater)
-			{
-				this->pre = input->creater;
-				input->creater->increase_count_out();
-			}
-			input->creater = this;
 		}
 		return input;
 	}
 
+	void Batch_normal_2d::backward(Optimizer::base_optimizer& opt)
+	{
+		if (with_weights)
+		{
+			for (uint16_t c = 0; c < channels; c++)
+			{
+				uint32_t channel_loc = dL_din->channel_steps * c;
+				for (uint16_t b = 0; b < dL_din->batchsize; b++)
+				{
+					uint32_t loc = b*dL_din->batch_steps_pad + channel_loc;
+					DTYPE* dL_din_data = dL_din->data + loc;
+					DTYPE* dL_dout_data = dL_dout->data + loc;
+					for (uint32_t i = 0; i < dL_din->channel_steps; i++)
+					{
+						dL_din_data[i] = dL_dout_data[i] * dout_din[c];
+					}
+				}
+			}
+		}
+		else
+		{
+			if (!dL_dw_now)
+				dL_dw_now = new DTYPE[channels]{};
+			if(!dL_db_now)
+				dL_db_now = new DTYPE[channels]{};
+			for (uint16_t c = 0; c < channels; c++)
+			{
+				uint32_t channel_loc = dL_din->channel_steps * c;
+				for (uint16_t b = 0; b < dL_din->batchsize; b++)
+				{
+					uint32_t loc = b*dL_din->batch_steps_pad + channel_loc;
+					DTYPE* dL_din_data = dL_din->data + loc;
+					DTYPE* dL_dout_data = dL_dout->data + loc;
+					DTYPE* dout_dw_data = dout_dw->data + loc;
+					dL_db_now[c] += SUM(dL_dout_data, dL_din->channel_steps);
+					for (uint32_t i = 0; i < dL_din->channel_steps; i++)
+					{
+						dL_dw_now[c] += dL_dout_data[i] * dout_dw_data[i];
+						dL_din_data[i] += dL_dout_data[i] * dout_din[c];
+					}
+				}
+			}
+		}
+	}
+
 	void Batch_normal_2d::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&this->channels, sizeof(uint16_t));
-		outfile.write((char*)&this->moment, DBYTES);
-		outfile.write((char*)&this->eps, DBYTES);
-		outfile.write((char*)&this->with_weights, sizeof(bool));
-		outfile.write((char*)this->running_mean, this->channels*DBYTES);
-		outfile.write((char*)this->running_var, this->channels*DBYTES);
-		if (this->with_weights)
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&channels, sizeof(uint16_t));
+		outfile.write((char*)&moment, DBYTES);
+		outfile.write((char*)&eps, DBYTES);
+		outfile.write((char*)&with_weights, sizeof(bool));
+		outfile.write((char*)running_mean, channels*DBYTES);
+		outfile.write((char*)running_var, channels*DBYTES);
+		if (with_weights)
 		{
-			outfile.write((char*)this->weight, this->channels*DBYTES);
-			outfile.write((char*)this->bias, this->channels*DBYTES);
+			outfile.write((char*)weight, channels*DBYTES);
+			outfile.write((char*)bias, channels*DBYTES);
 		}
 
 	}
 
 	void Batch_normal_2d::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&(this->channels), sizeof(uint16_t));
-		instream.read((char*)&(this->moment), DBYTES);
-		instream.read((char*)&(this->eps), DBYTES);
-		instream.read((char*)&(this->with_weights), sizeof(bool));
-		this->running_mean = new DTYPE[this->channels]{};
-		this->running_var = new DTYPE[this->channels]{};
-		instream.read((char*)this->running_mean, this->channels*DBYTES);
-		instream.read((char*)this->running_var, this->channels*DBYTES);
-		if (this->with_weights)
+		instream.read((char*)&(channels), sizeof(uint16_t));
+		instream.read((char*)&(moment), DBYTES);
+		instream.read((char*)&(eps), DBYTES);
+		instream.read((char*)&(with_weights), sizeof(bool));
+		running_mean = new DTYPE[channels]{};
+		running_var = new DTYPE[channels]{};
+		instream.read((char*)running_mean, channels*DBYTES);
+		instream.read((char*)running_var, channels*DBYTES);
+		if (with_weights)
 		{
-			this->weight = new DTYPE[this->channels]{};
-			this->bias = new DTYPE[this->channels]{};
-			instream.read((char*)this->weight, this->channels*DBYTES);
-			instream.read((char*)this->bias, this->channels*DBYTES);
+			weight = new DTYPE[channels]{};
+			bias = new DTYPE[channels]{};
+			instream.read((char*)weight, channels*DBYTES);
+			instream.read((char*)bias, channels*DBYTES);
 		}
 	}
 
@@ -1123,80 +1272,153 @@ namespace model_X
 		string out = "";
 		char data[150];
 		sprintf(data, "Operator:Batch_normal_2d\nnchannels: %d\nmoment: %f\neps: %f\n",
-			this->channels, this->moment, this->eps);
+			channels, moment, eps);
 		out += data;
 		return out;
 	}
 
 	Batch_normal_2d::~Batch_normal_2d()
 	{
-		if (this->weight) delete[] this->weight;
-		if (this->bias) delete[] this->bias;
-		if (this->running_mean) delete[] this->running_mean;
-		if (this->running_var) delete[] this->running_var;
-		if (this->cur_mean) delete[] this->cur_mean;
-		if (this->cur_var) delete[] this->cur_var;
+		if (weight) delete[] weight;
+		if (bias) delete[] bias;
+		if (running_mean) delete[] running_mean;
+		if (running_var) delete[] running_var;
+		if (cur_mean) delete[] cur_mean;
+		if (cur_var) delete[] cur_var;
 	}
 
 	Max_pool::Max_pool(uint8_t w, uint8_t h) :
 		pool_w(w),
 		pool_h(h) 
 	{
-		this->ID = LAYER_ID::MAX_POOL;
+		ID = LAYER_ID::MAX_POOL;
 	}
 
 	Node Max_pool::forward(Node input)
 	{
-		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / this->pool_h, input->cols / this->pool_w);
-		for (uint16_t b = 0; b < input->batchsize; b++)
+		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
+		if (require_gradients)
 		{
-			for (uint16_t c = 0; c < input->channels; c++)
+			if (!dL_din)
+				dL_din = input->copy(false);
+			dL_din->set_zero();
+			for (uint16_t b = 0; b < input->batchsize; b++)
 			{
-				DTYPE* res = out->get_channel_data(b, c);
-				DTYPE* inp = input->get_channel_data(b, c);
-				for (uint16_t i = 0, ii = 0; i < input->rows; i += this->pool_h, ii++)
+				uint32_t batch_loc = b*input->batch_steps_pad;
+				for (uint16_t c = 0; c < input->channels; c++)
 				{
-					uint16_t out_row_loc = ii*out->cols;
-					uint16_t inp_row_loc = i*input->cols;
-					for (uint16_t j = 0, jj = 0; j < input->cols; j += this->pool_w, jj++)
+					uint32_t channel_loc = c*dL_din->channel_steps;
+					DTYPE* res = out->get_channel_data(b, c);
+					DTYPE* inp = input->data + batch_loc + channel_loc;
+					DTYPE* dL_din_data = dL_din->data + batch_loc + channel_loc;
+					for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
 					{
-						DTYPE max = inp[inp_row_loc + j];
-						for (uint8_t k = 0; k < this->pool_h; k++)
+						uint16_t out_row_loc = ii*out->cols;
+						uint16_t inp_row_loc = i*input->cols;
+						for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
 						{
-							uint16_t inp_row_loc_ = (i + k)*input->cols;
-							for (uint8_t m = 0; m < this->pool_w; m++)
+							DTYPE max = inp[inp_row_loc + j];
+							uint8_t max_loc = inp_row_loc + j;
+							for (uint8_t k = 0; k < pool_h; k++)
 							{
-								if (inp[inp_row_loc_ + j + m ] > max)	max = inp[inp_row_loc_ + j + m];
+								uint16_t inp_row_loc_ = (i + k)*input->cols;
+								for (uint8_t m = 0; m < pool_w; m++)
+								{
+									if (inp[inp_row_loc_ + j + m] > max)
+									{
+										max = inp[inp_row_loc_ + j + m];
+										max_loc = inp_row_loc_ + j + m;
+									}
+								}
 							}
+							dL_din_data[max_loc] = 1;
+							res[out_row_loc + jj] = max;
 						}
-						res[out_row_loc + jj] = max;
 					}
 				}
 			}
-		}
-		if (this->require_gradients)
-		{
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			out->creater = this;
 		}
+		else
+		{
+			for (uint16_t b = 0; b < input->batchsize; b++)
+			{
+				uint32_t batch_loc = b*input->batch_steps_pad;
+				for (uint16_t c = 0; c < input->channels; c++)
+				{
+					DTYPE* res = out->get_channel_data(b, c);
+					DTYPE* inp = input->data + batch_loc + c*input->channel_steps;
+					for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
+					{
+						uint16_t out_row_loc = ii*out->cols;
+						uint16_t inp_row_loc = i*input->cols;
+						for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
+						{
+							DTYPE max = inp[inp_row_loc + j];
+							for (uint8_t k = 0; k < pool_h; k++)
+							{
+								uint16_t inp_row_loc_ = (i + k)*input->cols;
+								for (uint8_t m = 0; m < pool_w; m++)
+								{
+									if (inp[inp_row_loc_ + j + m] > max)
+										max = inp[inp_row_loc_ + j + m];
+								}
+							}
+							res[out_row_loc + jj] = max;
+						}
+					}
+				}
+			}
+		}
 		return out;
 	}
 
+	void Max_pool::backward(Optimizer::base_optimizer & opt)
+	{
+		for (uint16_t b = 0; b < dL_din->batchsize; b++)
+		{
+			uint32_t batch_loc = b*dL_din->batch_steps_pad;
+			for (uint16_t c = 0; c < dL_din->channels; c++)
+			{
+				uint32_t channel_loc = c*dL_din->channel_steps;
+				DTYPE* dL_dout_data = dL_dout->get_channel_data(b, c);
+				DTYPE* dL_din_data = dL_din->data + batch_loc + channel_loc;
+				for (uint16_t i = 0, ii = 0; i < dL_din->rows; i += pool_h, ii++)
+				{
+					uint16_t out_row_loc = ii*dL_dout->cols;
+					uint16_t inp_row_loc = i*dL_din->cols;
+					for (uint16_t j = 0, jj = 0; j < dL_din->cols; j += pool_w, jj++)
+					{
+						for (uint8_t k = 0; k < pool_h; k++)
+						{
+							uint16_t inp_row_loc_ = (i + k)*dL_din->cols;
+							for (uint8_t m = 0; m < pool_w; m++)
+							{
+								if (dL_din_data[inp_row_loc_ + j + m] > 0)
+									dL_din_data[inp_row_loc_ + j + m] = dL_dout_data[out_row_loc+jj];
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	void Max_pool::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&(this->pool_w), sizeof(uint8_t));
-		outfile.write((char*)&(this->pool_h), sizeof(uint8_t));
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&(pool_w), sizeof(uint8_t));
+		outfile.write((char*)&(pool_h), sizeof(uint8_t));
 	}
 
 	void Max_pool::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&(this->pool_w), sizeof(uint8_t));
-		instream.read((char*)&(this->pool_h), sizeof(uint8_t));
+		instream.read((char*)&(pool_w), sizeof(uint8_t));
+		instream.read((char*)&(pool_h), sizeof(uint8_t));
 	}
 
 	string Max_pool::info()
@@ -1204,49 +1426,51 @@ namespace model_X
 		string out = "";
 		char data[150];
 		sprintf(data, "Operator:Max_pool\nPool_size: [%d,%d]\n",
-			this->pool_w, this->pool_h);
+			pool_w, pool_h);
 		out += data;
 		return out;
 	}
 
 	Ave_pool::Ave_pool(uint8_t w, uint8_t h): pool_w(w),pool_h(h)
 	{
-		this->ID = LAYER_ID::AVE_POOL;
+		ID = LAYER_ID::AVE_POOL;
 	}
 
 	Node Ave_pool::forward(Node input)
 	{
-		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / this->pool_h, input->cols / this->pool_w);
+		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
 		for (uint16_t b = 0; b < input->batchsize; b++)
 		{
 			for (uint16_t c = 0; c < input->channels; c++)
 			{
 				DTYPE* res = out->get_channel_data(b, c);
 				DTYPE* inp = input->get_channel_data(b, c);
-				for (uint16_t i = 0, ii = 0; i < input->rows; i += this->pool_h, ii++)
+				for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
 				{
 					uint16_t out_row_loc = ii*out->cols;
-					for (uint16_t j = 0, jj = 0; j < input->cols; j += this->pool_w, jj++)
+					for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
 					{
 						DTYPE sum = 0;
-						for (uint8_t k = 0; k < this->pool_h; k++)
+						for (uint8_t k = 0; k < pool_h; k++)
 						{
 							uint16_t inp_row_loc = (i + k)*input->cols;
-							for (uint8_t m = 0; m < this->pool_w; m++)
+							for (uint8_t m = 0; m < pool_w; m++)
 							{
 								sum += inp[inp_row_loc + j + m];
 							}
 						}
-						res[out_row_loc+jj] = sum/this->pool_h/this->pool_w;
+						res[out_row_loc+jj] = sum/pool_h/pool_w;
 					}
 				}
 			}
 		}
-		if (this->require_gradients)
+		if (require_gradients)
 		{
+			if (!dL_din)
+				dL_din = input->copy(false);
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			out->creater = this;
@@ -1254,18 +1478,47 @@ namespace model_X
 		return out;
 	}
 
+	void Ave_pool::backward(Optimizer::base_optimizer & opt)
+	{
+		int size = pool_h * pool_w;
+		for (uint16_t b = 0; b < dL_din->batchsize; b++)
+		{
+			for (uint16_t c = 0; c < dL_din->channels; c++)
+			{
+				DTYPE* res = dL_dout->get_channel_data(b, c);
+				DTYPE* inp = dL_din->get_channel_data(b, c);
+				for (uint16_t i = 0, ii = 0; i < dL_din->rows; i += pool_h, ii++)
+				{
+					uint16_t out_row_loc = ii*dL_dout->cols;
+					for (uint16_t j = 0, jj = 0; j < dL_din->cols; j += pool_w, jj++)
+					{
+						DTYPE sum = 0;
+						for (uint8_t k = 0; k < pool_h; k++)
+						{
+							uint16_t inp_row_loc = (i + k)*dL_din->cols;
+							for (uint8_t m = 0; m < pool_w; m++)
+							{
+								inp[inp_row_loc + j + m] = res[out_row_loc + jj] / size;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	void Ave_pool::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&(this->pool_w), sizeof(uint8_t));
-		outfile.write((char*)&(this->pool_h), sizeof(uint8_t));
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&(pool_w), sizeof(uint8_t));
+		outfile.write((char*)&(pool_h), sizeof(uint8_t));
 	}
 
 
 	void Ave_pool::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&(this->pool_w), sizeof(uint8_t));
-		instream.read((char*)&(this->pool_h), sizeof(uint8_t));
+		instream.read((char*)&(pool_w), sizeof(uint8_t));
+		instream.read((char*)&(pool_h), sizeof(uint8_t));
 	}
 
 	string Ave_pool::info()
@@ -1273,30 +1526,50 @@ namespace model_X
 		string out = "";
 		char data[150];
 		sprintf(data, "Operator:Ave_pool\nPool_size: [%d,%d]\n",
-			this->pool_w, this->pool_h);
+			pool_w, pool_h);
 		out += data;
 		return out;
 	}
 
 	Drop_out::Drop_out(float rate):rate(rate) 
 	{
-		this->ID = LAYER_ID::DROP_OUT;
+		ID = LAYER_ID::DROP_OUT;
 	}
 
 	Node Drop_out::forward(Node input)
 	{
-		srand(clock());
-		for (uint16_t i = 0; i < input->batchsize; i++)
-			for (uint32_t j = 0; j < input->batch_steps; j++)
-			{
-				if (random_uniform() <= rate)
-					input->get_batch_data(i)[j] = 0;
-			}
-		if (this->require_gradients)
+		if (!require_gradients)
 		{
+			srand(clock());
+			for (uint16_t i = 0; i < input->batchsize; i++)
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					if (random_uniform() <= rate)
+						input->get_batch_data(i)[j] = 0;
+				}
+		}
+		else
+		{
+			if (!dL_din)
+				dL_din = input->copy(false);
+			dL_din->set_zero();
+			srand(clock());
+			for (uint16_t i = 0; i < input->batchsize; i++)
+			{
+				uint32_t batch_loc = i*input->batch_steps_pad;
+				DTYPE* input_data = input->data + batch_loc;
+				DTYPE* dL_din_data = dL_din->data + batch_loc;
+				for (uint32_t j = 0; j < input->batch_steps; j++)
+				{
+					if (random_uniform() <= rate)
+						input_data[j] = 0;
+					else
+						dL_din_data[j] = 1;
+				}
+			}
 			if (input->creater)
 			{
-				this->pre = input->creater;
+				pre = input->creater;
 				input->creater->increase_count_out();
 			}
 			input->creater = this;
@@ -1304,15 +1577,32 @@ namespace model_X
 		return input;
 	}
 
+	void Drop_out::backward(Optimizer::base_optimizer & opt)
+	{
+		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		{
+			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			DTYPE* dL_din_data = dL_din->data + batch_loc;
+			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
+			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			{
+				if (dL_din_data[j] > 0)
+				{
+					dL_din_data[j] = dL_dout_data[j];
+				}
+			}
+		}
+	}
+
 	void Drop_out::to_binay_file(ofstream& outfile)
 	{
-		outfile.write((char*)&this->ID, sizeof(uint8_t));
-		outfile.write((char*)&this->rate, DBYTES);
+		outfile.write((char*)&ID, sizeof(uint8_t));
+		outfile.write((char*)&rate, DBYTES);
 	}
 
 	void Drop_out::read_stream(ifstream& instream)
 	{
-		instream.read((char*)&this->rate, DBYTES);
+		instream.read((char*)&rate, DBYTES);
 	}
 
 	string Drop_out::info()
@@ -1320,89 +1610,36 @@ namespace model_X
 		string out = "";
 		char data[150];
 		sprintf(data, "Operator:Drop_out\nDrop_rate: %f\n",
-			this->rate);
+			rate);
 		out += data;
 		return out;
 	}
 	Operator*& Concator::get_O1()
 	{
-		return this->O1;
+		return O1;
 	}
 	Operator*& Concator::get_O2()
 	{
-		return this->O2;
-	}
-
-	void Concator::backward(Optimizer::base_optimizer& opt)
-	{
-		this->set_gradients();
-		unordered_set<Operator*> set;
-		vector<Operator*> stack;
-		stack.push_back(this->O1);
-		stack.push_back(this->O1);
-		Operator* now;
-		while(true)
-		{
-			now = stack[stack.size() - 1];
-			stack.pop_back();
-			while (now->get_count_out() <= 1)
-			{
-				if (now->ID == LAYER_ID::CONCAT)
-				{
-					stack.push_back(((Concator*)now)->O1);
-					stack.push_back(((Concator*)now)->O1);
-					break;
-				}
-				else
-				{
-					now->backward(opt);
-					now = now->pre;
-				}
-			}
-			if (now->ID == LAYER_ID::CONCAT)
-				continue;
-			if (set.count(now) == 0)
-			{
-				now->increase_count_back();
-				set.insert(now);
-			}
-			else
-			{
-				now->increase_count_back();
-				if (now->get_count_back() == now->get_count_out())
-				{
-					if (stack.size() > 0)
-					{
-						stack.push_back(now);
-						set.erase(now);
-					}
-					else
-					{
-						this->start = now;
-						break;
-					}
-				}
-			}
-		}
+		return O2;
 	}
 
 	Operator* Concator::get_pre()
 	{
-		return this->start;
+		return start;
 	}
 
 	Add::Add(Operator* O1, Operator* O2)
 	{
-		this->ID = LAYER_ID::CONCAT;
-		this->O1 = O1;
-		this->O2 = O2;
-		this->O1->increase_count_out();
-		this->O2->increase_count_out();
+		ID = LAYER_ID::CONCAT;
+		O1 = O1;
+		O2 = O2;
+		O1->increase_count_out();
+		O2->increase_count_out();
 	}
 
 	void Add::set_gradients()
 	{
-		this->O1->pass_gradients(this->dL_dout);
-		this->O2->pass_gradients(this->dL_dout);
+		O1->pass_gradients(dL_dout);
+		O2->pass_gradients(dL_dout);
 	}
 }
