@@ -13,7 +13,7 @@ namespace model_X
 	class Operator;
 	class storage
 	{
-	private:
+	public:
 		dimension dims;
 		uint8_t ndims;
 		uint32_t dim_steps[8];
@@ -85,6 +85,7 @@ namespace model_X
 	class tensor final : public shared_ptr<storage>
 	{
 	public:
+		tensor();
 		tensor(const dimension& dims);
 		tensor(const tensor& other);
 		tensor operator+ (tensor other);

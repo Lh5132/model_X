@@ -27,7 +27,7 @@ namespace model_X
 			for (uint32_t i = 0; i < dense->out_size; i++)
 			{
 				DTYPE* w_grad = dense->dL_dw_now + i * dense->in_size;
-				DTYPE* w_data = dense->weights + i * dense->in_size_pad;
+				DTYPE* w_data = dense->weights + i * dense->in_size;
 				if (dense->with_bias)
 					dense->bias[i] = dense->bias[i] - lr * dense->dL_db_now[i];
 				for (uint32_t j = 0; j < dense->in_size; j++)
@@ -80,7 +80,7 @@ namespace model_X
 			for (uint32_t i = 0; i < dense->out_size; i++)
 			{
 				uint32_t w_loc = i * dense->in_size;
-				DTYPE* w_data = dense->weights + i*dense->in_size_pad;
+				DTYPE* w_data = dense->weights + i*dense->in_size;
 				DTYPE* w_grad = dense->dL_dw + w_loc;
 				DTYPE* w_grad_now = dense->dL_dw_now + w_loc;
 				if (dense->with_bias)
@@ -154,7 +154,7 @@ namespace model_X
 			for (uint32_t i = 0; i < dense->out_size; i++)
 			{
 				uint32_t w_loc = i * dense->in_size;
-				DTYPE* w_data = dense->weights + i*dense->in_size_pad;
+				DTYPE* w_data = dense->weights + i*dense->in_size;
 				DTYPE* w_grad = dense->dL_dw + w_loc;
 				DTYPE* w_grad_2 = dense->dL_dw_2 + w_loc;
 				DTYPE* w_grad_now = dense->dL_dw_now + w_loc;
@@ -241,7 +241,7 @@ namespace model_X
 			for (uint32_t i = 0; i < dense->out_size; i++)
 			{
 				uint32_t w_loc = i * dense->in_size;
-				DTYPE* w_data = dense->weights + i * dense->in_size_pad;
+				DTYPE* w_data = dense->weights + i * dense->in_size;
 				DTYPE* w_grad = dense->dL_dw + w_loc;
 				DTYPE* w_grad_1 = dense->dL_dw_1 + w_loc;
 				DTYPE* w_grad_2 = dense->dL_dw_2 + w_loc;

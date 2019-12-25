@@ -9,8 +9,6 @@
 #endif
 
 
-#define Conv_2d layer_op<LAYER_ID::CONV_2D>
-
 
 namespace model_X
 {
@@ -41,29 +39,6 @@ namespace model_X
 		static const uint8_t AVE_POOL = 9;
 		static const uint8_t DROP_OUT = 10;
 	}
-	//namespace Optimizer_method
-	//{
-	//	static const uint8_t SGD = 1;
-	//	static const uint8_t Momentum = 2;
-	//	static const uint8_t RMSProp = 3;
-	//	static const uint8_t Adam = 4;
-	//}
-
-	//typedef struct Optimizer
-	//{
-	//	uint8_t optimizer_method;
-	//	DTYPE learning_rate;
-	//	DTYPE momentum_1;
-	//	DTYPE momentum_2;
-	//	DTYPE eps;
-	//	Optimizer(uint8_t method_ID, DTYPE lr, DTYPE momentum_1 = 0.9, DTYPE momentum_2 = 0.99, DTYPE eps = 1e-8) :
-	//		optimizer_method(method_ID),
-	//		learning_rate(lr),
-	//		momentum_1(momentum_1),
-	//		momentum_2(momentum_2),
-	//		eps(eps) {}
-	//} Optimizer;
-
 	typedef struct conv_stride
 	{
 		uint8_t w;
@@ -109,27 +84,24 @@ namespace model_X
 	} conv_padding;
 
 	class storage;
-	class storage;
+	class tensor;
 	class Operator
 	{
 	protected:
 		bool require_gradients = false;
 		uint8_t count_out = 0; //用于记录分支开始的节点
 		uint8_t count_back = 0;
-		uint16_t layer_index = 0; //用于记录先后顺序
 
 		//导数传递
 		int parall_thread = 0;
-		/*
-		dc_dout:	损失对该层输出的导数矩阵
-		dout_dw:	该层输出对参数的导数矩阵，与dc_dout相乘后即为损失函数对参数的导数
-		dout_db:	该层输出对偏置项的导数矩阵，与dc_dout相乘后即为损失函数对偏置项的导数
-		dout_din:	该层输出对输入的导数矩阵，用于链式求解前一层的dc_dout;
-		*/
 
 	public:
 		uint8_t ID = 0;
 		Operator* pre = nullptr;   //用于记录从后向前的单向链表
+		/*
+		dc_dout:	损失对该层输出的导数矩阵
+		dout_din:	该层输出对输入的导数矩阵，用于链式求解前一层的dc_dout;
+		*/
 		storage* dL_dout = nullptr;
 		storage* dL_din = nullptr;
 		inline bool is_gradiets()
@@ -163,6 +135,7 @@ namespace model_X
 		}
 		void pass_gradients();
 		void pass_gradients(storage* gradients);
+		Operator* get_pre();
 		/*
 		计算图通过一个单向的带有分支的链表来表示
 		当某一Operator的count_out>1时，该节点即为某一分支开始分裂的起点
@@ -170,8 +143,7 @@ namespace model_X
 		*/
 		virtual void set_async_thread(int n);
 		virtual void set_async_thread();
-		virtual Operator* get_pre();
-		virtual storage forward(storage input) = 0;
+		virtual tensor forward(tensor input) = 0;
 		virtual void backward(Optimizer::base_optimizer& opt);
 		virtual void zero_grad();
 		virtual void to_binay_file(ofstream& outfile);
@@ -185,37 +157,28 @@ namespace model_X
 		virtual void to_cpu();
 #endif
 	};
-	template<uint8_t layerid>
-	class layer_op
-	{};
 
 	//为了方便使用avx2，所有数据均用0补成8的整数倍的数量
-	template<>
-	class layer_op<LAYER_ID::CONV_2D> final:public Operator
+	class Conv_2d final:public Operator
 	{
 	private:
 		//卷积核参数
 		uint8_t k_w;
 		uint8_t k_h;
-		uint8_t data_pad;
 		uint16_t in_channels;
 		uint16_t out_channels;
 		uint16_t kernel_size;
 		uint32_t total_size;
 		uint32_t kernel_steps;
-		uint32_t kernel_steps_pad;
 		bool with_bias;
 		DTYPE* weights;
 		DTYPE* bias;
+		conv_stride strid;
+		conv_padding padding;
 		//转换矩阵参数
 		DTYPE* transform_matrix;
 		uint32_t tm_rows;
 		uint32_t tm_cols;
-		uint32_t tm_cols_pad;
-
-		conv_stride strid;
-		conv_padding padding;
-
 		//输出对卷积参数的雅可比矩阵
 		DTYPE* dout_dw = nullptr;
 
@@ -223,7 +186,6 @@ namespace model_X
 		uint16_t* dout_din_w_loc = nullptr;				
 		uint16_t* dout_din_out_loc = nullptr;
 		uint16_t* dout_din_row_size = nullptr;
-
 		DTYPE* dL_dw_now = nullptr;
 		DTYPE* dL_db_now = nullptr;
 		DTYPE* dL_dw = nullptr;
@@ -248,7 +210,7 @@ namespace model_X
 		void to_cpu();
 #endif
 	public:
-		friend void __conv_async_helper(storage input, storage out, Conv_2d* conv,
+		friend void __conv_async_helper(tensor input, tensor out, Conv_2d* conv,
 			uint32_t tm_batch_steps, uint32_t out_cols,
 			uint32_t start, uint32_t end);
 
@@ -259,11 +221,11 @@ namespace model_X
 
 		inline DTYPE* get_channel_data(uint16_t channel)
 		{
-			return this->weights + channel*this->kernel_steps_pad;
+			return this->weights + channel*this->kernel_steps;
 		}
-		layer_op();
-		layer_op(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
-		storage forward(storage input) override;
+		Conv_2d();
+		Conv_2d(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
+		tensor forward(tensor input) override;
 		void random_init(int init_method = Normal) override;
 		void zero_grad() override;
 		void backward(Optimizer::base_optimizer& opt) override;
@@ -273,7 +235,7 @@ namespace model_X
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
 		string info() override;
-		~layer_op() override;
+		~Conv_2d() override;
 	};
 
 	class Dense final :public Operator
@@ -282,11 +244,9 @@ namespace model_X
 		DTYPE* weights;
 		DTYPE* bias;
 		uint32_t in_size;
-		uint32_t in_size_pad;
 		uint32_t out_size;
 		uint32_t total_size;
 		bool with_bias;
-		uint8_t data_pad;
 		storage* dout_dw = nullptr;
 		DTYPE* dL_dw_now = nullptr;
 		DTYPE* dL_db_now = nullptr;
@@ -303,16 +263,15 @@ namespace model_X
 		friend class Optimizer::Momentum;
 		friend class Optimizer::RMSProp;
 		friend class Optimizer::Adam;
-		friend void __dense_async_helper(storage input, storage out, Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
-
+		friend void __dense_async_helper(Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
 		Dense();
 		Dense(uint32_t in_size, uint32_t out_size, bool with_bias = true);
 		void random_init(int init_method = Normal) override;
 		inline DTYPE* get_channel_data(uint16_t c)
 		{
-			return this->weights + c*this->in_size_pad;
+			return this->weights + c * this->in_size;
 		}
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -323,7 +282,7 @@ namespace model_X
 	{
 	public:
 		Relu();
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -333,7 +292,7 @@ namespace model_X
 	{
 	public:
 		Sigmoid();
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -343,7 +302,7 @@ namespace model_X
 	{
 	public:
 		Soft_max();
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -378,7 +337,7 @@ namespace model_X
 		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -393,7 +352,7 @@ namespace model_X
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Max_pool(uint8_t w = 2, uint8_t h = 2);
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -406,7 +365,7 @@ namespace model_X
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Ave_pool(uint8_t w = 2, uint8_t h = 2);
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -417,7 +376,7 @@ namespace model_X
 	public:
 		DTYPE rate;
 		Drop_out(float rate = 0.5);
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -431,10 +390,9 @@ namespace model_X
 		Operator* O2;
 		Operator* start = nullptr;
 	public:
-		Operator* get_pre();
 		Operator*& get_O1();
 		Operator*& get_O2();
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 		virtual void set_gradients() = 0;
 	};
 

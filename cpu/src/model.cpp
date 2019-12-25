@@ -159,7 +159,7 @@ namespace model_X
 		this->operators.push_back(layer);
 	}
 
-	storage Sequential::forward(storage input)
+	tensor Sequential::forward(tensor input)
 	{
 		for (Operator* layer : this->operators)
 			input = layer->forward(input);

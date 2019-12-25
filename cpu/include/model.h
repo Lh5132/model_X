@@ -32,6 +32,6 @@ namespace model_X
 		~Sequential();
 		void print_info();
 		void add_moudle(Operator* layer);
-		storage forward(storage input) override;
+		tensor forward(tensor input) override;
 	};
 }

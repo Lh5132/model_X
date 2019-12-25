@@ -223,6 +223,10 @@ namespace model_X
 			myfree(data);
 	}
 
+	tensor::tensor()
+	{
+	}
+
 	tensor::tensor(const dimension& dims)
 	{
 		shared_ptr<storage> temp = make_shared<storage>(dims);

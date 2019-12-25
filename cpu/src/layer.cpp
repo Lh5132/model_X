@@ -101,7 +101,7 @@ namespace model_X
 	{
 		return pre;
 	}
-	storage Operator::forward(storage input) { return storage(); }
+	tensor Operator::forward(tensor input) { return tensor(); }
 	void Operator::pass_gradients()
 	{
 		if (pre)
@@ -111,7 +111,7 @@ namespace model_X
 			else
 			{
 				if (pre->dL_dout)
-					ADD(pre->dL_dout->data, dL_din->data, pre->dL_dout->data, dL_din->total_size);
+					ADD(pre->dL_dout->get_data(), dL_din->get_data(), pre->dL_dout->get_data(), dL_din->get_total_size());
 				else
 					pre->dL_dout = dL_din;
 			}
@@ -153,7 +153,7 @@ namespace model_X
 		}
 		delete[] out_temp;
 	}
-	Conv_2d::layer_op() :
+	Conv_2d::Conv_2d() :
 		transform_matrix(nullptr),
 		k_w(0),
 		k_h(0),
@@ -171,7 +171,7 @@ namespace model_X
 		ID = LAYER_ID::CONV_2D;
 	}
 
-	Conv_2d::layer_op(
+	Conv_2d::Conv_2d(
 		uint16_t in_channels, 
 		uint16_t out_channels, 
 		uint8_t w, uint8_t h, 
@@ -190,29 +190,8 @@ namespace model_X
 	{
 		ID = LAYER_ID::CONV_2D;
 		kernel_steps = kernel_size*in_channels;
-		uint8_t tail = kernel_steps % DATA_ALIGN;
-		if (tail == 0)
-		{
-			data_pad = 0;
-			kernel_steps_pad = kernel_steps;
-		}
-		else
-		{
-			data_pad = DATA_ALIGN - tail;
-			kernel_steps_pad = kernel_steps + data_pad;
-		}
-
-		total_size = kernel_steps_pad * out_channels;
+		total_size = kernel_steps * out_channels;
 		weights = (float*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
-
-		if (kernel_steps_pad > kernel_steps)
-		{
-			for (int c = 0; c < out_channels; c++)
-			{
-				for (uint32_t p = kernel_steps; p < kernel_steps_pad; p++)
-					get_channel_data(c)[p] = 0;
-			}
-		}
 		if(with_bias)
 			bias = new DTYPE[out_channels]{};
 		else bias = nullptr;
@@ -231,7 +210,7 @@ namespace model_X
 	}
 #endif
 
-	void __conv_async_helper(storage input, storage out, Conv_2d* conv,
+	void __conv_async_helper(tensor input, tensor out, Conv_2d* conv,
 		uint32_t tm_batch_steps, uint32_t out_cols,
 		uint32_t start, uint32_t end)
 	{
@@ -241,20 +220,22 @@ namespace model_X
 			int out_col_loc = ii - out_row_loc*out_cols;
 			int i = out_row_loc*conv->strid.h - conv->padding.top;
 			int j = out_col_loc*conv->strid.w - conv->padding.left;
-			uint32_t tm_row_loc = ii * conv->tm_cols_pad;
+			uint32_t tm_row_loc = ii * conv->tm_cols;
 			DTYPE* dout_dw_channel;
 			uint32_t batch_loc, dw_where;
-			for (uint16_t b = 0; b < input->batchsize; b++)
+			DTYPE* out_data;
+			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
+				out_data = out->get_data() + b * out->dim_steps[0];
 				uint32_t batch_start = b*tm_batch_steps;
 				if (conv->is_gradiets())
 				{
 					batch_loc = b*conv->tm_cols*conv->tm_rows;
 				}
-				for (uint16_t c = 0; c < input->channels; c++)
+				for (uint16_t c = 0; c < input->dims.d[1]; c++)
 				{
 					uint32_t tm_row_ch_loc = c*conv->kernel_size;
-					DTYPE* input_data = input->get_channel_data(b, c);
+					DTYPE* input_data = input->data + b * input->dim_steps[0] + c * input->dim_steps[1];
 					for (uint8_t krow = 0; krow < conv->k_h; krow++)
 					{
 						for (uint8_t kcol = 0; kcol < conv->k_w; kcol++)
@@ -262,15 +243,15 @@ namespace model_X
 							uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*conv->k_w + kcol;
 							if (conv->is_gradiets())
 								dw_where = batch_loc + (tm_row_ch_loc + krow*conv->k_w + kcol)*conv->tm_rows + ii;
-							if ((i + krow) >= 0 && (i + krow) < input->rows && (j + kcol) >= 0 && (j + kcol) < input->cols)
+							if ((i + krow) >= 0 && (i + krow) < input->dims.d[2] && (j + kcol) >= 0 && (j + kcol) < input->dims.d[3])
 							{
-								conv->transform_matrix[where] = *(input_data + (i + krow)*input->cols + j + kcol);
+								conv->transform_matrix[where] = *(input_data + (i + krow)* input->dims.d[2] + j + kcol);
 								if (conv->is_gradiets())
 								{
 									conv->dout_dw[dw_where] = conv->transform_matrix[where];
 									if (c == 0)
 									{
-										uint32_t inp_loc = (i + krow)*input->cols + (j + kcol);
+										uint32_t inp_loc = (i + krow)* input->dims.d[3] + (j + kcol);
 										conv->dout_din_w_loc[inp_loc*conv->kernel_size + conv->dout_din_row_size[inp_loc]] = krow*conv->k_w + kcol;
 										conv->dout_din_out_loc[inp_loc*conv->kernel_size + conv->dout_din_row_size[inp_loc]] = ii;
 										conv->dout_din_row_size[inp_loc] += 1;
@@ -286,34 +267,29 @@ namespace model_X
 						}
 					}
 				}
-				if (conv->data_pad > 0)
+				for (uint16_t cc = 0; cc < conv->out_channels; cc++)
 				{
-					uint32_t pad_start = batch_start + tm_row_loc + input->channels * conv->kernel_size;
-					for (uint8_t t = 0; t < conv->data_pad; t++)
-						conv->transform_matrix[pad_start + t] = 0;
-				}
-				for (uint16_t cc = 0; cc < out->channels; cc++)
-				{
+					DTYPE* data = out_data + cc * out->get_dim_steps(1);
 					if (conv->with_bias)
-						out->get_channel_data(b, cc)[ii] = MUL_ADD(conv->get_channel_data(cc),
-							conv->transform_matrix + batch_start + tm_row_loc, conv->tm_cols_pad) + conv->bias[cc];
+						data[ii] = MUL_ADD(conv->get_channel_data(cc),
+							conv->transform_matrix + batch_start + tm_row_loc, conv->tm_cols) + conv->bias[cc];
 					else
-						out->get_channel_data(b, cc)[ii] = MUL_ADD(conv->get_channel_data(cc),
-							conv->transform_matrix + batch_start + tm_row_loc, conv->tm_cols_pad);
+						data[ii] = MUL_ADD(conv->get_channel_data(cc),
+							conv->transform_matrix + batch_start + tm_row_loc, conv->tm_cols);
 				}
 			}
 		}
 	}
 
 
-	storage Conv_2d::forward(storage input)
+	tensor Conv_2d::forward(tensor input)
 	{
-		if (input->channels != in_channels)
+		if (input->get_dims(1) != in_channels && input->get_ndims != 4)
 			throw "number of channels mismatch!";
 		if (padding.Padding_style == PADDING_STYLE::SAME)
 		{
-			uint8_t pad_w = (input->cols - 1)*strid.h - input->cols + k_w;
-			uint8_t pad_h = (input->rows - 1)*strid.w - input->rows + k_h;
+			uint8_t pad_w = (input->dims.d[3] - 1)*strid.h - input->dims.d[3] + k_w;
+			uint8_t pad_h = (input->dims.d[2] - 1)*strid.w - input->dims.d[2] + k_h;
 			if (pad_w % 2 == 0)
 				padding.left = padding.right = pad_w / 2;
 			else
@@ -329,33 +305,32 @@ namespace model_X
 				padding.bottom = pad_w / 2;
 			}
 		}
-		uint32_t out_rows = (input->rows + padding.top + padding.bottom - k_h) / strid.h + 1;
-		uint32_t out_cols = (input->cols + padding.left + padding.right - k_w) / strid.w + 1;
-		storage out = storage_creater::creat(input->batchsize, out_channels, out_rows, out_cols);
+		uint32_t out_rows = (input->dims.d[2] + padding.top + padding.bottom - k_h) / strid.h + 1;
+		uint32_t out_cols = (input->dims.d[3] + padding.left + padding.right - k_w) / strid.w + 1;
+		tensor out({ input->get_dims(0), out_channels, out_rows, out_cols });
 		//构建中间矩阵
 		tm_cols = kernel_steps;
-		tm_cols_pad = kernel_steps_pad;
 		tm_rows = out_rows*out_cols;
-		uint32_t tm_batch_steps = tm_rows*tm_cols_pad;
-		uint32_t tm_size = tm_batch_steps*input->batchsize;
+		uint32_t tm_batch_steps = tm_rows*tm_cols;
+		uint32_t tm_size = tm_batch_steps*input->dims.d[0];
 		transform_matrix = (DTYPE*)mylloc(tm_size*DBYTES, MALLOC_ALIGN);
 		if (require_gradients)
 		{
 			if(!dout_dw)
-				dout_dw = (DTYPE*)mylloc(tm_cols*tm_rows*input->batchsize*DBYTES, DATA_ALIGN);
+				dout_dw = (DTYPE*)mylloc(tm_cols*tm_rows*input->dims.d[0]*DBYTES, DATA_ALIGN);
 			if (!dL_din)
 				dL_din = input->copy(false);
 			if(!dout_din_w_loc)
-				dout_din_w_loc = new uint16_t[input->channel_steps*kernel_size]{};
+				dout_din_w_loc = new uint16_t[input->dim_steps[1]*kernel_size]{};
 			if (!dout_din_out_loc)
-				dout_din_out_loc = new uint16_t[input->channel_steps*kernel_size]{};
+				dout_din_out_loc = new uint16_t[input->dim_steps[1]*kernel_size]{};
 			if(!dout_din_row_size)
-				dout_din_row_size = new uint16_t[input->channel_steps]{};
-			out->require_grad();
+				dout_din_row_size = new uint16_t[input->dim_steps[1]]{};
+			out->require_gradients = true;
 		}
 		if (parall_thread > 1)
 		{
-			uint32_t base_n = out->channel_steps / parall_thread;
+			uint32_t base_n = out->dim_steps[1] / parall_thread;
 			future<void>* fn = new future<void>[parall_thread];
 			for (uint8_t i = 0; i < parall_thread - 1; i++)
 			{
@@ -363,33 +338,35 @@ namespace model_X
 					tm_batch_steps, out_cols, base_n*i, base_n*(i + 1));
 			}
 			fn[parall_thread - 1] = async(launch::async, __conv_async_helper, input, out, this,
-				tm_batch_steps, out_cols, base_n*(parall_thread - 1), out->channel_steps);
+				tm_batch_steps, out_cols, base_n*(parall_thread - 1), out->dim_steps[1]);
 			for (int i = 0; i < parall_thread; i++)
 				fn[i].wait();
 			delete[] fn;
 		}
 		else
 		{
-			for (uint32_t ii = 0; ii < out->channel_steps; ii++)
+			for (uint32_t ii = 0; ii < out->dim_steps[1]; ii++)
 			{
 				int out_row_loc = ii / out_cols;
 				int out_col_loc = ii - out_row_loc*out_cols;
 				int i = out_row_loc*strid.h - padding.top;
 				int j = out_col_loc*strid.w - padding.left;
-				uint32_t tm_row_loc = ii * tm_cols_pad;
+				uint32_t tm_row_loc = ii * tm_cols;
 				DTYPE* dout_dw_channel;
 				uint32_t batch_loc, dw_where;
-				for (uint16_t b = 0; b < input->batchsize; b++)
+				DTYPE* out_data;
+				for (uint16_t b = 0; b < input->dims.d[0]; b++)
 				{
+					out_data = out->data + b * out->dim_steps[0];
 					uint32_t batch_start = b*tm_batch_steps;
 					if (is_gradiets())
 					{
 						batch_loc = b*tm_cols*tm_rows;
 					}
-					for (uint16_t c = 0; c < input->channels; c++)
+					for (uint16_t c = 0; c < input->dims.d[1]; c++)
 					{
 						uint32_t tm_row_ch_loc = c*kernel_size;
-						DTYPE* input_data = input->get_channel_data(b, c);
+						DTYPE* input_data = input->data + b * input->dim_steps[0] + c * input->dim_steps[1];
 						for (uint8_t krow = 0; krow < k_h; krow++)
 						{
 							for (uint8_t kcol = 0; kcol < k_w; kcol++)
@@ -397,15 +374,15 @@ namespace model_X
 								uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*k_w + kcol;
 								if (is_gradiets())
 									dw_where = batch_loc + (tm_row_ch_loc + krow*k_w + kcol)*tm_rows + ii;
-								if ((i + krow) >= 0 && (i + krow) < input->rows && (j + kcol) >= 0 && (j + kcol) < input->cols)
+								if ((i + krow) >= 0 && (i + krow) < input->dims.d[2] && (j + kcol) >= 0 && (j + kcol) < input->dims.d[3])
 								{
-									transform_matrix[where] = *(input_data + (i + krow)*input->cols + j + kcol);
+									transform_matrix[where] = *(input_data + (i + krow)*input->dims.d[3] + j + kcol);
 									if (is_gradiets())
 									{
 										dout_dw[dw_where] = transform_matrix[where];
 										if (c == 0)
 										{
-											uint32_t inp_loc = (i + krow)*input->cols + (j + kcol);
+											uint32_t inp_loc = (i + krow)*input->dims.d[3] + (j + kcol);
 											dout_din_w_loc[inp_loc*kernel_size + dout_din_row_size[inp_loc]] = krow*k_w + kcol;
 											dout_din_out_loc[inp_loc*kernel_size + dout_din_row_size[inp_loc]] = ii;
 											dout_din_row_size[inp_loc] += 1;
@@ -421,20 +398,16 @@ namespace model_X
 							}
 						}
 					}
-					if (data_pad > 0)
+					for (uint16_t cc = 0; cc < out_channels; cc++)
 					{
-						uint32_t pad_start = batch_start + tm_row_loc + input->channels * kernel_size;
-						for (uint8_t t = 0; t < data_pad; t++)
-							transform_matrix[pad_start + t] = 0;
-					}
-					for (uint16_t cc = 0; cc < out->channels; cc++)
-					{
+						DTYPE* data = out_data + cc * out->dim_steps[1];
+						data = out->data + b * out->dim_steps[0] + cc * out->get_dim_steps[1];
 						if (with_bias)
-							out->get_channel_data(b, cc)[ii] = MUL_ADD(get_channel_data(cc),
-								transform_matrix + batch_start + tm_row_loc, tm_cols_pad) + bias[cc];
+							data[ii] = MUL_ADD(get_channel_data(cc),
+								transform_matrix + batch_start + tm_row_loc, tm_cols) + bias[cc];
 						else
-							out->get_channel_data(b, cc)[ii] = MUL_ADD(get_channel_data(cc),
-								transform_matrix + batch_start + tm_row_loc, tm_cols_pad);
+							data[ii] = MUL_ADD(get_channel_data(cc),
+								transform_matrix + batch_start + tm_row_loc, tm_cols);
 					}
 				}
 			}
@@ -457,28 +430,13 @@ namespace model_X
 		srand(clock());
 		if (init_method == Uniform)
 		{
-			for (uint16_t c = 0; c < out_channels; c++)
-			{
-				for (uint32_t i = 0; i < kernel_steps; i++)
-				{
-					get_channel_data(c)[i] = random_uniform();
-				}
-			}
+			for(uint32_t i=0;i<total_size;i++)
+				weights[i] = random_uniform();
 		}
 		else if (init_method == Normal)
 		{
-			for (uint16_t c = 0; c < out_channels; c++)
-			{
-				for (uint32_t i = 0; i < kernel_steps; i++)
-				{
-					get_channel_data(c)[i] = random_gaussrand(0, 1);
-				}
-				if (kernel_steps_pad > kernel_steps)
-				{
-					for (uint32_t p = kernel_steps; p < kernel_steps_pad; p++)
-						get_channel_data(c)[p] = 0;
-				}
-			}
+			for (uint32_t i = 0; i < total_size; i++)
+				weights[i] = random_gaussrand(0,1);
 		}
 		else
 			throw "Please identify init method(Normal or Uniform)";
@@ -486,39 +444,46 @@ namespace model_X
 	void Conv_2d::zero_grad()
 	{
 		clear_concators(this);
-		fill(dL_din->data, dL_din->data + dL_din->total_size, 0.0f);
-		fill(dL_dout->data, dL_dout->data + dL_dout->total_size, 0.0f);
+		if(dL_din)
+			fill(dL_din->data, dL_din->data + dL_din->total_size, 0.0f);
+		if(dL_dout)
+			fill(dL_dout->data, dL_dout->data + dL_dout->total_size, 0.0f);
+		if (dL_dw_now)
+			fill(dL_dw_now, dL_dw_now + total_size, 0.0f);
+		if (dL_dw_now)
+			fill(dL_dw_now, dL_dw_now + total_size, 0.0f);
+		if (dL_db_now)
+			fill(dL_db_now, dL_db_now + out_channels, 0.0f);
 	}
 
 	void Conv_2d::backward(Optimizer::base_optimizer& opt)
 	{
 		//计算dL_dw
-		uint32_t dw_size = kernel_steps*out_channels;
 		if(!dL_dw_now)
-			dL_dw_now = new DTYPE[dw_size]{};
+			dL_dw_now = new DTYPE[total_size]{};
 		if (with_bias)
 			if(!dL_db_now)
 				dL_db_now = new DTYPE[out_channels]{};
-		for (uint16_t b = 0; b < dL_dout->batchsize; b++)
+		for (uint16_t b = 0; b < dL_dout->dims.d[0]; b++)
 		{
 			DTYPE* dout_dw_batch = dout_dw + b * tm_cols*tm_rows;
 			for (uint16_t c = 0; c < out_channels; c++)
 			{
 				DTYPE* channel_w = get_channel_data(c);
 				DTYPE* dL_dw_channel_data = dL_dw_now + c*kernel_steps;
-				DTYPE* dL_dout_channle_data = dL_dout->get_channel_data(b, c);
+				DTYPE* dL_dout_channle_data = dL_dout->data + b * dL_dout->dim_steps[0] + c * dL_dout->dim_steps[1];
 				for (uint32_t i = 0; i < kernel_steps; i++)
 				{
 					dL_dw_channel_data[i] += MUL_ADD(dout_dw_batch+i*tm_rows, dL_dout_channle_data, tm_rows);
 				}
 				if (with_bias)
 				{
-					dL_db_now[c] += SUM(dL_dout_channle_data, dL_dout->channel_steps);
+					dL_db_now[c] += SUM(dL_dout_channle_data, dL_dout->dim_steps[1]);
 				}
-				for (uint16_t i = 0; i < dL_din->channels; i++)
+				for (uint16_t i = 0; i < dL_din->dims.d[1]; i++)
 				{
-					DTYPE* dl_din_channel = dL_din->get_channel_data(b,i);
-					for (uint32_t j = 0; j < dL_din->channel_steps; j++)
+					DTYPE* dl_din_channel = dL_din->data + b * dL_din->dim_steps[0] + i * dL_din->dim_steps[1];
+					for (uint32_t j = 0; j < dL_din->dim_steps[1]; j++)
 					{
 						DTYPE temp = 0;
 						uint32_t loc = j*kernel_size;
@@ -588,18 +553,7 @@ namespace model_X
 
 		kernel_size = k_w*k_h;
 		kernel_steps = kernel_size*in_channels;
-		uint8_t tail = kernel_steps % DATA_ALIGN;
-		if (tail == 0)
-		{
-			data_pad = 0;
-			kernel_steps_pad = kernel_steps;
-		}
-		else
-		{
-			data_pad = DATA_ALIGN - tail;
-			kernel_steps_pad = kernel_steps + data_pad;
-		}
-		total_size = kernel_steps_pad * out_channels;
+		total_size = kernel_steps * out_channels;
 		weights = (float*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
 
 
@@ -623,7 +577,7 @@ namespace model_X
 		return out;
 	}
 
-	Conv_2d::~layer_op()
+	Conv_2d::~Conv_2d()
 	{
 		k_w = 0;
 		k_h = 0;
@@ -632,8 +586,6 @@ namespace model_X
 		total_size = 0;
 		kernel_size = 0;
 		kernel_steps = 0;
-		kernel_steps_pad = 0;
-		data_pad = 0;
 		tm_rows = 0;
 		tm_cols = 0;
 		remove_mylloc(weights);
@@ -645,6 +597,8 @@ namespace model_X
 		remove_new(dL_db);
 		remove_new(dL_db_1);
 		remove_new(dL_db_2);
+		remove_new(dL_db_now);
+		remove_new(dL_dw_now);
 		remove_storage(dL_din);
 		remove_storage(dL_dout);
 		remove_mylloc(dout_dw);
@@ -658,23 +612,17 @@ namespace model_X
 		bias(nullptr),
 		in_size(0),
 		out_size(0),
-		with_bias(false),
-		data_pad(0),
-		in_size_pad(0)
+		with_bias(false)
 	{
 		ID = LAYER_ID::DENSE;
 	}
 	Dense::Dense(uint32_t in_size, uint32_t out_size, bool with_bias):
 		in_size(in_size),
 		out_size(out_size),
-		with_bias(with_bias)
+		with_bias(with_bias),
+		total_size(in_size* out_size)
 	{
 		ID = LAYER_ID::DENSE;
-		uint8_t tail = in_size%DATA_ALIGN;
-		if (tail == 0) data_pad = 0;
-		else data_pad = DATA_ALIGN - tail;
-		in_size_pad = in_size + data_pad;
-		total_size = in_size_pad*out_size;
 		weights = (DTYPE*)mylloc(total_size*DBYTES, MALLOC_ALIGN);
 		if(with_bias)
 			bias = new DTYPE[out_size]{};
@@ -685,53 +633,37 @@ namespace model_X
 		if (init_method == Uniform)
 		{
 			srand(clock());
-			for (uint32_t i = 0; i < out_size; i++)
+			for (uint32_t i = 0; i < total_size; i++)
 			{
-				for (uint32_t j = 0; j < in_size; j++)
-				{
-					get_channel_data(i)[j] = random_uniform();
-				}
-				if (data_pad > 0)
-				{
-					for (uint8_t j = 0; j < data_pad; j++)
-						get_channel_data(i)[in_size + j] = 0;
-				}
+				weights[i] = random_uniform();
 			}
 		}
 		else if (init_method == Normal)
 		{
 			for (uint32_t i = 0; i < out_size; i++)
 			{
-				for (uint32_t j = 0; j < in_size; j++)
-				{
-					get_channel_data(i)[j] = random_gaussrand(0,1);
-				}
-				if (data_pad > 0)
-				{
-					for (uint8_t j = 0; j < data_pad; j++)
-						get_channel_data(i)[in_size + j] = 0;
-				}
+				weights[i] = random_gaussrand(0, 1);
 			}
 		}
 		else
 			throw "Please identify init method(Normal or Uniform)";
 	}
 
-	void __dense_async_helper(storage input, storage out,Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end)
+	void __dense_async_helper(Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end)
 	{
 		if(dense->with_bias)
 			for (uint32_t j = start; j < end; j++)
-				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size_pad) + dense->bias[j];
+				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size) + dense->bias[j];
 		else
 			for (uint32_t j = start; j < end; j++)
-				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size_pad) + dense->bias[j];
+				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size) + dense->bias[j];
 	}
 
-	storage Dense::forward(storage input)
+	tensor Dense::forward(tensor input)
 	{
-		if (in_size_pad != input->batch_steps_pad)
+		if (in_size != input->dims.d[1] || input->ndims !=2)
 			throw "dims miss match!";
-		storage out = storage_creater::creat(input->batchsize, 1, 1, out_size);
+		tensor out({ input->dims.d[0], out_size });
 		if (require_gradients)
 		{
 			if(!dout_dw)
@@ -743,16 +675,16 @@ namespace model_X
 		{
 			future<void>* fn = new future<void>[parall_thread];
 			uint32_t base_n = out_size / parall_thread;
-			for (uint16_t b = 0; b < input->batchsize; b++)
+			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
-				DTYPE* res = out->get_batch_data(b);
-				DTYPE* inp = input->get_batch_data(b);
+				DTYPE* res = out->data + b*out->dim_steps[0];
+				DTYPE* inp = input->data + b * input->dim_steps[0];
 				for (uint8_t i = 0; i < parall_thread - 1; i++)
 				{
-					fn[i] = async(launch::async, __dense_async_helper, input, out, this,
+					fn[i] = async(launch::async, __dense_async_helper, this,
 						res, inp, base_n*i, base_n*(i + 1));
 				}
-				fn[parall_thread - 1] = async(launch::async, __dense_async_helper, input, out, this,
+				fn[parall_thread - 1] = async(launch::async, __dense_async_helper, this,
 					res, inp, base_n*(parall_thread - 1), out_size);
 				for (int i = 0; i < parall_thread; i++)
 					fn[i].wait();
@@ -763,22 +695,22 @@ namespace model_X
 		{
 			if (with_bias)
 			{
-				for (uint16_t i = 0; i < input->batchsize; i++)
+				for (uint16_t i = 0; i < input->dims.d[0]; i++)
 				{
-					DTYPE* res = out->get_batch_data(i);
-					DTYPE* inp = input->get_batch_data(i);
+					DTYPE* res = out->data + i * out->dim_steps[0];
+					DTYPE* inp = input->data + i * input->dim_steps[0];
 					for (uint32_t j = 0; j < out_size; j++)
-						res[j] = MUL_ADD(get_channel_data(j), inp, in_size_pad) + bias[j];
+						res[j] = MUL_ADD(get_channel_data(j), inp, in_size) + bias[j];
 				}
 			}
 			else
 			{
-				for (uint16_t i = 0; i < input->batchsize; i++)
+				for (uint16_t i = 0; i < input->dims.d[0]; i++)
 				{
-					DTYPE* res = out->get_batch_data(i);
-					DTYPE* inp = input->get_batch_data(i);
+					DTYPE* res = out->data + i * out->dim_steps[0];
+					DTYPE* inp = input->data + i * input->dim_steps[0];
 					for (uint32_t j = 0; j < out_size; j++)
-						res[j] = MUL_ADD(get_channel_data(j), inp, in_size_pad);
+						res[j] = MUL_ADD(get_channel_data(j), inp, in_size);
 				}
 			}
 		}
@@ -800,17 +732,17 @@ namespace model_X
 			dL_dw_now = new DTYPE[in_size*out_size*DBYTES]{};
 		if (!dL_db_now)
 			dL_db_now = new DTYPE[out_size*DBYTES]{};
-		for (uint16_t b = 0; b < dL_dout->batchsize; b++)
+		for (uint16_t b = 0; b < dL_dout->dims.d[0]; b++)
 		{
-			DTYPE* dL_dout_batch = dL_dout->get_batch_data(b);
-			DTYPE* dL_din_batch = dL_din->get_batch_data(b);
-			DTYPE* dout_dw_batch = dout_dw->get_batch_data(b);
+			DTYPE* dL_dout_batch = dL_dout->data + b * dL_dout->dim_steps[0];
+			DTYPE* dL_din_batch = dL_din->data + b * dL_din->dim_steps[0];
+			DTYPE* dout_dw_batch = dout_dw->data + b * dout_dw->dim_steps[0];
 			for (uint32_t i = 0; i < out_size; i++)
 			{
 				if (with_bias)
 					dL_db_now[i] += dL_dout_batch[i];
 				DTYPE* dL_dw_data = dL_dw_now + i*in_size;
-				DTYPE* dout_din_data = weights + i*in_size_pad;
+				DTYPE* dout_din_data = weights + i*in_size;
 				for (uint32_t j = 0; j < in_size; j++)
 				{
 					dL_din_batch[j] += dL_dout_batch[i] * dout_din_data[j];
@@ -836,11 +768,7 @@ namespace model_X
 		instream.read((char*)&(in_size), sizeof(uint32_t));
 		instream.read((char*)&(out_size), sizeof(uint32_t));
 		instream.read((char*)&(with_bias), sizeof(bool));
-		uint8_t tail = in_size%DATA_ALIGN;
-		if (tail == 0) data_pad = 0;
-		else data_pad = DATA_ALIGN - tail;
-		in_size_pad = in_size + data_pad;
-		total_size = in_size_pad*out_size;
+		total_size = in_size*out_size;
 		weights = (DTYPE*)mylloc(total_size*DBYTES, MALLOC_ALIGN);
 		instream.read((char*)(weights), total_size*DBYTES);
 		if (with_bias)
@@ -858,14 +786,12 @@ namespace model_X
 			in_size, out_size);
 		out += data;
 		return out;
-
 	}
 	Dense::~Dense()
 	{
 		in_size = 0;
 		out_size = 0;
 		with_bias = false;
-		data_pad = 0;
 		time_step = 0;
 		remove_mylloc(weights);
 		remove_new(bias);
@@ -886,14 +812,14 @@ namespace model_X
 		ID = LAYER_ID::RELU;
 	}
 
-	storage Relu::forward(storage input)
+	tensor Relu::forward(tensor input)
 	{
 		if (!require_gradients)
 		{
-			for (uint16_t i = 0; i < input->batchsize; i++)
+			for (uint16_t i = 0; i < input->dims.d[0]; i++)
 			{
-				DTYPE* res = input->get_batch_data(i);
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				DTYPE* res = input->data + i * input->dim_steps[i];
+				for (uint32_t j = 0; j < input->dim_steps[i]; j++)
 					if (res[j] < 0)
 						res[j] = 0;
 			}
@@ -901,14 +827,14 @@ namespace model_X
 		}
 		else
 		{
-			if (!dL_din)
-				dL_din = input->copy();
-			for (uint16_t i = 0; i < input->batchsize; i++)
+			for (uint16_t i = 0; i < input->dims.d[0]; i++)
 			{
-				uint32_t batch_loc = i*input->batch_steps_pad;
+				if (!dL_din)
+					dL_din = input->copy(false);
+				uint32_t batch_loc = i * input->dim_steps[0];
 				DTYPE* res = input->data + batch_loc;
 				DTYPE* dL_din_data = dL_din->data + batch_loc;
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				for (uint32_t j = 0; j < input->dim_steps[0]; j++)
 				{
 					if (res[j] < 0)
 					{
@@ -931,12 +857,12 @@ namespace model_X
 
 	void Relu::backward(Optimizer::base_optimizer & opt)
 	{
-		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		for (uint16_t i = 0; i < dL_din->dims.d[0]; i++)
 		{
-			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			uint32_t batch_loc = i*dL_din->dim_steps[0];
 			DTYPE* dL_din_data = dL_din->data + batch_loc;
 			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
-			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			for (uint32_t j = 0; j < dL_din->dim_steps[0]; j++)
 			{
 				if (dL_din_data[j] > 0)
 					dL_din_data[j] = dL_dout_data[j];
@@ -965,14 +891,14 @@ namespace model_X
 		ID = LAYER_ID::SIGMOID;
 	}
 
-	storage Sigmoid::forward(storage input)
+	tensor Sigmoid::forward(tensor input)
 	{
 		if (!require_gradients)
 		{
-			for (uint16_t i = 0; i < input->batchsize; i++)
+			for (uint16_t i = 0; i < input->dims.d[0]; i++)
 			{
-				DTYPE* res = input->get_batch_data(i);
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				DTYPE* res = input->data + i * input->dim_steps[0];
+				for (uint32_t j = 0; j < input->dim_steps[0]; j++)
 					res[j] = sigmoid(res[j]);
 			}
 			return input;
@@ -981,12 +907,12 @@ namespace model_X
 		{
 			if (!dL_din)
 				dL_din = input->copy();
-			for (uint16_t i = 0; i < input->batchsize; i++)
+			for (uint16_t i = 0; i < input->dims.d[0]; i++)
 			{
-				uint32_t batch_loc = i*input->batch_steps_pad;
+				uint32_t batch_loc = i*input->dim_steps[0];
 				DTYPE* res = input->data + batch_loc;
 				DTYPE* dL_din_data = dL_din->data + batch_loc;
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				for (uint32_t j = 0; j < input->dim_steps[0]; j++)
 				{
 					DTYPE exp_ = exp(0 - res[j]);
 					res[j] = 1 / (1 + exp_);
@@ -1005,12 +931,12 @@ namespace model_X
 
 	void Sigmoid::backward(Optimizer::base_optimizer & opt)
 	{
-		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		for (uint16_t i = 0; i < dL_din->dims.d[0]; i++)
 		{
-			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			uint32_t batch_loc = i*dL_din->dim_steps[0];
 			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
 			DTYPE* dL_din_data = dL_din->data + batch_loc;
-			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			for (uint32_t j = 0; j < dL_din->dim_steps[0]; j++)
 			{
 				dL_din_data[j] = dL_din_data[j] * dL_dout_data[j];
 			}
@@ -1038,30 +964,30 @@ namespace model_X
 		ID = LAYER_ID::SOFT_MAX;
 	}
 
-	storage Soft_max::forward(storage input)
+	tensor Soft_max::forward(tensor input)
 	{
 		if(!require_gradients)
-		for (int i = 0; i < input->batchsize; i++)
+		for (int i = 0; i < input->dims.d[0]; i++)
 		{
-			soft_max(input->get_batch_data(i), input->get_batch_data(i), input->batch_steps);
+			soft_max(input->data + i * input->dim_steps[0], input->data + i * input->dim_steps[0], input->dim_steps[0]);
 		}
 		else
 		{
 			if(!dL_din)
 				dL_din = input->copy();
-			for (int i = 0; i < input->batchsize; i++)
+			for (int i = 0; i < input->dims.d[0]; i++)
 			{
-				uint32_t batch_loc = i*input->batch_steps_pad;
+				uint32_t batch_loc = i*input->dim_steps[0];
 				DTYPE* res = input->data + batch_loc;
 				DTYPE* dL_din_data = dL_din->data + batch_loc;
-				DTYPE* out_temp = new DTYPE[input->batch_steps]{};
+				DTYPE* out_temp = new DTYPE[input->dim_steps[0]]{};
 				DTYPE total = 0;
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				for (uint32_t j = 0; j < input->dim_steps[0]; j++)
 				{
 					out_temp[j] = exp(res[j]);
 					total += out_temp[j];
 				}
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				for (uint32_t j = 0; j < input->dim_steps[0]; j++)
 				{
 					res[j] = out_temp[j] / total;
 					dL_din_data[j] = out_temp[j] * (total - out_temp[j]) / pow(total, 2);
@@ -1080,12 +1006,12 @@ namespace model_X
 
 	void Soft_max::backward(Optimizer::base_optimizer & opt)
 	{
-		for (int i = 0; i < dL_din->batchsize; i++)
+		for (int i = 0; i < dL_din->dims.d[0]; i++)
 		{
-			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			uint32_t batch_loc = i*dL_din->dim_steps[0];
 			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
 			DTYPE* dL_din_data = dL_din->data + batch_loc;
-			for (uint32_t j = 0; j < dL_dout->batch_steps; j++)
+			for (uint32_t j = 0; j < dL_dout->dim_steps[0]; j++)
 			{
 				dL_din_data[i] = dL_din_data[j] * dL_dout_data[j];
 			}
@@ -1139,7 +1065,7 @@ namespace model_X
 		}
 	}
 
-	storage Batch_normal_2d::forward(storage input)
+	tensor Batch_normal_2d::forward(tensor input)
 	{
 
 		if (require_gradients)
@@ -1153,64 +1079,72 @@ namespace model_X
 			{
 				if (!dout_dw)
 					dout_dw = input->copy(false);
-				for (uint16_t i = 0; i < input->channels; i++)
+				for (uint16_t i = 0; i < input->dims.d[1]; i++)
 				{
 					temp_M = 0;
 					temp_V = 0;
-					uint32_t channel_loc = i*input->channel_steps;
-					for (uint16_t j = 0; j < input->batchsize; j++)
+					uint32_t channel_loc = i*input->dim_steps[1];
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
-						uint32_t loc = j*input->batch_steps_pad + channel_loc;
-						temp_M += SUM(input->data + loc, input->channel_steps) / input->channel_steps / input->batchsize;
+						uint32_t loc = j*input->dim_steps[0] + channel_loc;
+						temp_M += SUM(input->data + loc, input->dim_steps[1]);
 					}
-					for (uint16_t j = 0; j < input->batchsize; j++)
+					temp_M = temp_M / input->dim_steps[1] / input->dims.d[0];
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
-						uint32_t loc = j*input->batch_steps_pad + channel_loc;
-						temp_V += var_normal(input->data + loc, temp_M, input->channel_steps) / input->batchsize;
+						uint32_t loc = j*input->dim_steps[0] + channel_loc;
+						temp_V += var_normal(input->data + loc, temp_M, input->dim_steps[1]);
 					}
+					temp_V /= input->dims.d[0];
 					running_mean[i] = (1 - moment)*cur_mean[i] + moment*temp_M;
 					running_var[i] = (1 - moment)*cur_var[i] + moment*temp_V;
 					cur_mean[i] = temp_M;
 					cur_var[i] = temp_V;
 					DTYPE var_sqrt = sqrt(temp_V + eps);
 					dout_din[i] = weight[i] / var_sqrt;
-					for (uint16_t j = 0; j < input->batchsize; j++)
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
-						uint32_t loc = j*input->batch_steps_pad + channel_loc;
+						uint32_t loc = j*input->dim_steps[0] + channel_loc;
 						DTYPE* res = input->data + loc;
 						DTYPE* dout_dw_data = dout_dw->data + loc;
-						for (uint32_t k = 0; k < input->channel_steps; k++)
+						for (uint32_t k = 0; k < input->dim_steps[1]; k++)
 						{
 							res[k] = (res[k] - temp_M) / var_sqrt;
 							dout_dw_data[k] = res[k];
 						}
-						LINEAR_MUL_ADD(res, weight[i], bias[i], input->channel_steps);
+						LINEAR_MUL_ADD(res, weight[i], bias[i], input->dim_steps[1]);
 					}
 				}
 			}
 			else
 			{
-				for (uint16_t i = 0; i < input->channels; i++)
+				for (uint16_t i = 0; i < input->dims.d[1]; i++)
 				{
 					temp_M = 0;
 					temp_V = 0;
-					uint32_t channel_loc = i*input->channel_steps;
-					for (uint16_t j = 0; j < input->batchsize; j++)
+					uint32_t channel_loc = i * input->dim_steps[1];
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
-						temp_M += SUM(input->get_channel_data(j, i), input->channel_steps) / input->channel_steps / input->batchsize;
+						uint32_t loc = j * input->dim_steps[0] + channel_loc;
+						temp_M += SUM(input->data + loc, input->dim_steps[1]);
 					}
-					for (uint16_t j = 0; j < input->batchsize; j++)
-						temp_V += var_normal(input->get_channel_data(j, i), temp_M, input->channel_steps) / input->batchsize;
+					temp_M = temp_M / input->dim_steps[1] / input->dims.d[0];
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
+					{
+						uint32_t loc = j * input->dim_steps[0] + channel_loc;
+						temp_V += var_normal(input->data + loc, temp_M, input->dim_steps[1]);
+					}
+					temp_V /= input->dims.d[0];
 					running_mean[i] = (1 - moment)*cur_mean[i] + moment*temp_M;
 					running_var[i] = (1 - moment)*cur_var[i] + moment*temp_V;
 					cur_mean[i] = temp_M;
 					cur_var[i] = temp_V;
 					DTYPE var_sqrt = sqrt(temp_V + eps);
 					dout_din[i] = 1 / var_sqrt;
-					for (uint16_t j = 0; j < input->batchsize; j++)
+					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
-						DTYPE* res = input->data + j*input->batch_steps_pad + channel_loc;
-						for (uint32_t k = 0; k < input->channel_steps; k++)
+						DTYPE* res = input->data + j*input->dim_steps[0] + channel_loc;
+						for (uint32_t k = 0; k < input->dim_steps[1]; k++)
 							res[k] = (res[k] - temp_M) / var_sqrt;
 					}
 				}
@@ -1224,17 +1158,17 @@ namespace model_X
 		}
 		else
 		{
-			for (uint16_t i = 0; i < input->channels; i++)
+			for (uint16_t i = 0; i < input->dims.d[1]; i++)
 			{
-				for (uint16_t j = 0; j < input->batchsize; j++)
+				for (uint16_t j = 0; j < input->dims.d[0]; j++)
 				{
-					DTYPE* res = input->get_channel_data(j, i);
-					for (uint32_t k = 0; k < input->channel_steps; k++)
+					DTYPE* res = input->data + j * input->dim_steps[0] + i * input->dim_steps[1];
+					for (uint32_t k = 0; k < input->dim_steps[1]; k++)
 					{
 						res[k] = (res[k] - running_mean[i]) / sqrt(running_var[i] + eps);
 					}
 					if (with_weights)
-						LINEAR_MUL_ADD(res, weight[i], bias[i], input->channel_steps);
+						LINEAR_MUL_ADD(res, weight[i], bias[i], input->dim_steps[1]);
 				}
 			}
 		}
@@ -1247,13 +1181,13 @@ namespace model_X
 		{
 			for (uint16_t c = 0; c < channels; c++)
 			{
-				uint32_t channel_loc = dL_din->channel_steps * c;
-				for (uint16_t b = 0; b < dL_din->batchsize; b++)
+				uint32_t channel_loc = dL_din->dim_steps[1] * c;
+				for (uint16_t b = 0; b < dL_din->dims.d[0]; b++)
 				{
-					uint32_t loc = b*dL_din->batch_steps_pad + channel_loc;
+					uint32_t loc = b*dL_din->dim_steps[0] + channel_loc;
 					DTYPE* dL_din_data = dL_din->data + loc;
 					DTYPE* dL_dout_data = dL_dout->data + loc;
-					for (uint32_t i = 0; i < dL_din->channel_steps; i++)
+					for (uint32_t i = 0; i < dL_din->dim_steps[1]; i++)
 					{
 						dL_din_data[i] = dL_dout_data[i] * dout_din[c];
 					}
@@ -1268,15 +1202,15 @@ namespace model_X
 				dL_db_now = new DTYPE[channels]{};
 			for (uint16_t c = 0; c < channels; c++)
 			{
-				uint32_t channel_loc = dL_din->channel_steps * c;
-				for (uint16_t b = 0; b < dL_din->batchsize; b++)
+				uint32_t channel_loc = dL_din->dim_steps[1] * c;
+				for (uint16_t b = 0; b < dL_din->dims.d[0]; b++)
 				{
-					uint32_t loc = b*dL_din->batch_steps_pad + channel_loc;
+					uint32_t loc = b*dL_din->dim_steps[0] + channel_loc;
 					DTYPE* dL_din_data = dL_din->data + loc;
 					DTYPE* dL_dout_data = dL_dout->data + loc;
 					DTYPE* dout_dw_data = dout_dw->data + loc;
-					dL_db_now[c] += SUM(dL_dout_data, dL_din->channel_steps);
-					for (uint32_t i = 0; i < dL_din->channel_steps; i++)
+					dL_db_now[c] += SUM(dL_dout_data, dL_din->dim_steps[1]);
+					for (uint32_t i = 0; i < dL_din->dim_steps[1]; i++)
 					{
 						dL_dw_now[c] += dL_dout_data[i] * dout_dw_data[i];
 						dL_din_data[i] += dL_dout_data[i] * dout_din[c];
@@ -1349,34 +1283,34 @@ namespace model_X
 		ID = LAYER_ID::MAX_POOL;
 	}
 
-	storage Max_pool::forward(storage input)
+	tensor Max_pool::forward(tensor input)
 	{
-		storage out = storage_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
+		tensor out({ input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w });
 		if (require_gradients)
 		{
 			if (!dL_din)
 				dL_din = input->copy(false);
 			dL_din->set_zero();
-			for (uint16_t b = 0; b < input->batchsize; b++)
+			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
-				uint32_t batch_loc = b*input->batch_steps_pad;
-				for (uint16_t c = 0; c < input->channels; c++)
+				uint32_t batch_loc = b*input->dim_steps[0];
+				for (uint16_t c = 0; c < input->dims.d[1]; c++)
 				{
-					uint32_t channel_loc = c*dL_din->channel_steps;
-					DTYPE* res = out->get_channel_data(b, c);
+					uint32_t channel_loc = c*dL_din->dim_steps[1];
+					DTYPE* res = out->data + b * out->dim_steps[0] + c * out->dim_steps[1];
 					DTYPE* inp = input->data + batch_loc + channel_loc;
 					DTYPE* dL_din_data = dL_din->data + batch_loc + channel_loc;
-					for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
+					for (uint16_t i = 0, ii = 0; i < input->dims.d[2]; i += pool_h, ii++)
 					{
-						uint16_t out_row_loc = ii*out->cols;
-						uint16_t inp_row_loc = i*input->cols;
-						for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
+						uint16_t out_row_loc = ii*out->dims.d[3];
+						uint16_t inp_row_loc = i*input->dims.d[3];
+						for (uint16_t j = 0, jj = 0; j < input->dims.d[3]; j += pool_w, jj++)
 						{
 							DTYPE max = inp[inp_row_loc + j];
 							uint8_t max_loc = inp_row_loc + j;
 							for (uint8_t k = 0; k < pool_h; k++)
 							{
-								uint16_t inp_row_loc_ = (i + k)*input->cols;
+								uint16_t inp_row_loc_ = (i + k)*input->dims.d[3];
 								for (uint8_t m = 0; m < pool_w; m++)
 								{
 									if (inp[inp_row_loc_ + j + m] > max)
@@ -1401,23 +1335,23 @@ namespace model_X
 		}
 		else
 		{
-			for (uint16_t b = 0; b < input->batchsize; b++)
+			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
-				uint32_t batch_loc = b*input->batch_steps_pad;
-				for (uint16_t c = 0; c < input->channels; c++)
+				uint32_t batch_loc = b*input->dim_steps[0];
+				for (uint16_t c = 0; c < input->dims.d[1]; c++)
 				{
-					DTYPE* res = out->get_channel_data(b, c);
-					DTYPE* inp = input->data + batch_loc + c*input->channel_steps;
-					for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
+					DTYPE* res = out->data + b * out->dim_steps[0] + c * out->dim_steps[1];
+					DTYPE* inp = input->data + batch_loc + c*input->dim_steps[1];
+					for (uint16_t i = 0, ii = 0; i < input->dims.d[2]; i += pool_h, ii++)
 					{
-						uint16_t out_row_loc = ii*out->cols;
-						uint16_t inp_row_loc = i*input->cols;
-						for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
+						uint16_t out_row_loc = ii*out->dims.d[3];
+						uint16_t inp_row_loc = i*input->dims.d[3];
+						for (uint16_t j = 0, jj = 0; j < input->dims.d[3]; j += pool_w, jj++)
 						{
 							DTYPE max = inp[inp_row_loc + j];
 							for (uint8_t k = 0; k < pool_h; k++)
 							{
-								uint16_t inp_row_loc_ = (i + k)*input->cols;
+								uint16_t inp_row_loc_ = (i + k)*input->dims.d[3];
 								for (uint8_t m = 0; m < pool_w; m++)
 								{
 									if (inp[inp_row_loc_ + j + m] > max)
@@ -1435,23 +1369,23 @@ namespace model_X
 
 	void Max_pool::backward(Optimizer::base_optimizer & opt)
 	{
-		for (uint16_t b = 0; b < dL_din->batchsize; b++)
+		for (uint16_t b = 0; b < dL_din->dims.d[0]; b++)
 		{
-			uint32_t batch_loc = b*dL_din->batch_steps_pad;
-			for (uint16_t c = 0; c < dL_din->channels; c++)
+			uint32_t batch_loc = b*dL_din->dim_steps[0];
+			for (uint16_t c = 0; c < dL_din->dims.d[1]; c++)
 			{
-				uint32_t channel_loc = c*dL_din->channel_steps;
-				DTYPE* dL_dout_data = dL_dout->get_channel_data(b, c);
+				uint32_t channel_loc = c*dL_din->dim_steps[1];
+				DTYPE* dL_dout_data = dL_dout->data + b * dL_dout->dim_steps[0] + c * dL_dout->dim_steps[1];
 				DTYPE* dL_din_data = dL_din->data + batch_loc + channel_loc;
-				for (uint16_t i = 0, ii = 0; i < dL_din->rows; i += pool_h, ii++)
+				for (uint16_t i = 0, ii = 0; i < dL_din->dims.d[2]; i += pool_h, ii++)
 				{
-					uint16_t out_row_loc = ii*dL_dout->cols;
-					uint16_t inp_row_loc = i*dL_din->cols;
-					for (uint16_t j = 0, jj = 0; j < dL_din->cols; j += pool_w, jj++)
+					uint16_t out_row_loc = ii*dL_dout->dims.d[3];
+					uint16_t inp_row_loc = i*dL_din->dims.d[3];
+					for (uint16_t j = 0, jj = 0; j < dL_din->dims.d[3]; j += pool_w, jj++)
 					{
 						for (uint8_t k = 0; k < pool_h; k++)
 						{
-							uint16_t inp_row_loc_ = (i + k)*dL_din->cols;
+							uint16_t inp_row_loc_ = (i + k)*dL_din->dims.d[3];
 							for (uint8_t m = 0; m < pool_w; m++)
 							{
 								if (dL_din_data[inp_row_loc_ + j + m] > 0)
@@ -1491,24 +1425,24 @@ namespace model_X
 		ID = LAYER_ID::AVE_POOL;
 	}
 
-	storage Ave_pool::forward(storage input)
+	tensor Ave_pool::forward(tensor input)
 	{
-		storage out = storage_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
-		for (uint16_t b = 0; b < input->batchsize; b++)
+		tensor out({ input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w });
+		for (uint16_t b = 0; b < input->dims.d[0]; b++)
 		{
-			for (uint16_t c = 0; c < input->channels; c++)
+			for (uint16_t c = 0; c < input->dims.d[1]; c++)
 			{
-				DTYPE* res = out->get_channel_data(b, c);
-				DTYPE* inp = input->get_channel_data(b, c);
-				for (uint16_t i = 0, ii = 0; i < input->rows; i += pool_h, ii++)
+				DTYPE* res = out->data + b * out->dim_steps[0] + c * out->dim_steps[1];
+				DTYPE* inp = input->data + b * input->dim_steps[0] + c * input->dim_steps[1];
+				for (uint16_t i = 0, ii = 0; i < input->dims.d[2]; i += pool_h, ii++)
 				{
-					uint16_t out_row_loc = ii*out->cols;
-					for (uint16_t j = 0, jj = 0; j < input->cols; j += pool_w, jj++)
+					uint16_t out_row_loc = ii*out->dims.d[3];
+					for (uint16_t j = 0, jj = 0; j < input->dims.d[3]; j += pool_w, jj++)
 					{
 						DTYPE sum = 0;
 						for (uint8_t k = 0; k < pool_h; k++)
 						{
-							uint16_t inp_row_loc = (i + k)*input->cols;
+							uint16_t inp_row_loc = (i + k)*input->dims.d[3];
 							for (uint8_t m = 0; m < pool_w; m++)
 							{
 								sum += inp[inp_row_loc + j + m];
@@ -1536,21 +1470,21 @@ namespace model_X
 	void Ave_pool::backward(Optimizer::base_optimizer & opt)
 	{
 		int size = pool_h * pool_w;
-		for (uint16_t b = 0; b < dL_din->batchsize; b++)
+		for (uint16_t b = 0; b < dL_din->dims.d[0]; b++)
 		{
-			for (uint16_t c = 0; c < dL_din->channels; c++)
+			for (uint16_t c = 0; c < dL_din->dims.d[1]; c++)
 			{
-				DTYPE* res = dL_dout->get_channel_data(b, c);
-				DTYPE* inp = dL_din->get_channel_data(b, c);
-				for (uint16_t i = 0, ii = 0; i < dL_din->rows; i += pool_h, ii++)
+				DTYPE* res = dL_dout->data + b * dL_dout->dim_steps[0] +c * dL_dout->dim_steps[1];
+				DTYPE* inp = dL_din->data + b * dL_din->dim_steps[0] + c * dL_din->dim_steps[1];
+				for (uint16_t i = 0, ii = 0; i < dL_din->dims.d[2]; i += pool_h, ii++)
 				{
-					uint16_t out_row_loc = ii*dL_dout->cols;
-					for (uint16_t j = 0, jj = 0; j < dL_din->cols; j += pool_w, jj++)
+					uint16_t out_row_loc = ii*dL_dout->dims.d[3];
+					for (uint16_t j = 0, jj = 0; j < dL_din->dims.d[3]; j += pool_w, jj++)
 					{
 						DTYPE sum = 0;
 						for (uint8_t k = 0; k < pool_h; k++)
 						{
-							uint16_t inp_row_loc = (i + k)*dL_din->cols;
+							uint16_t inp_row_loc = (i + k)*dL_din->dims.d[3];
 							for (uint8_t m = 0; m < pool_w; m++)
 							{
 								inp[inp_row_loc + j + m] = res[out_row_loc + jj] / size;
@@ -1591,36 +1525,31 @@ namespace model_X
 		ID = LAYER_ID::DROP_OUT;
 	}
 
-	storage Drop_out::forward(storage input)
+	tensor Drop_out::forward(tensor input)
 	{
+		srand(clock());
 		if (!require_gradients)
 		{
-			srand(clock());
-			for (uint16_t i = 0; i < input->batchsize; i++)
-				for (uint32_t j = 0; j < input->batch_steps; j++)
-				{
-					if (random_uniform() <= rate)
-						input->get_batch_data(i)[j] = 0;
-				}
+			for (uint32_t i = 0; i < input->total_size; i++)
+			{
+				if (random_uniform() <= rate)
+					input->data[i] = 0;
+			}
 		}
 		else
 		{
 			if (!dL_din)
 				dL_din = input->copy(false);
 			dL_din->set_zero();
-			srand(clock());
-			for (uint16_t i = 0; i < input->batchsize; i++)
+			for (uint32_t i = 0; i < input->total_size; i++)
 			{
-				uint32_t batch_loc = i*input->batch_steps_pad;
-				DTYPE* input_data = input->data + batch_loc;
-				DTYPE* dL_din_data = dL_din->data + batch_loc;
-				for (uint32_t j = 0; j < input->batch_steps; j++)
+				if (random_uniform() <= rate)
 				{
-					if (random_uniform() <= rate)
-						input_data[j] = 0;
-					else
-						dL_din_data[j] = 1;
+					input->data[i] = 0;
+					dL_din->data[i] = 0;
 				}
+				else
+					dL_din->data[i] = 1;
 			}
 			if (input->creater)
 			{
@@ -1634,12 +1563,12 @@ namespace model_X
 
 	void Drop_out::backward(Optimizer::base_optimizer & opt)
 	{
-		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		for (uint16_t i = 0; i < dL_din->dims.d[0]; i++)
 		{
-			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			uint32_t batch_loc = i*dL_din->dim_steps[0];
 			DTYPE* dL_din_data = dL_din->data + batch_loc;
 			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
-			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			for (uint32_t j = 0; j < dL_din->dim_steps[0]; j++)
 			{
 				if (dL_din_data[j] > 0)
 				{
@@ -1678,14 +1607,9 @@ namespace model_X
 		return O2;
 	}
 
-	storage Concator::forward(storage input)
+	tensor Concator::forward(tensor input)
 	{
-		return storage();
-	}
-
-	Operator* Concator::get_pre()
-	{
-		return start;
+		return tensor();
 	}
 
 	Add::Add(Operator* O1, Operator* O2)
