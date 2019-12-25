@@ -1,7 +1,6 @@
 ﻿#pragma once
 
 #include "util.h"
-#include "optimizer.h"
 #include <fstream>
 
 #ifdef CUDA
@@ -9,8 +8,21 @@
 #include "device_launch_parameters.h"
 #endif
 
+
+#define Conv_2d layer_op<LAYER_ID::CONV_2D>
+
+
 namespace model_X
 {
+	const int cpu_cors = get_cpu_cors();
+	namespace Optimizer
+	{
+		class base_optimizer;
+		class SGD;
+		class Momentum;
+		class RMSProp;
+		class Adam;
+	}
 	namespace PADDING_STYLE
 	{
 		static const uint8_t SAME = 1;
@@ -96,8 +108,8 @@ namespace model_X
 		}
 	} conv_padding;
 
-	class node;
-	class Node;
+	class storage;
+	class storage;
 	class Operator
 	{
 	protected:
@@ -118,8 +130,8 @@ namespace model_X
 	public:
 		uint8_t ID = 0;
 		Operator* pre = nullptr;   //用于记录从后向前的单向链表
-		node* dL_dout = nullptr;
-		node* dL_din = nullptr;
+		storage* dL_dout = nullptr;
+		storage* dL_din = nullptr;
 		inline bool is_gradiets()
 		{
 			return this->require_gradients;
@@ -141,14 +153,6 @@ namespace model_X
 		{
 			return this->count_back;
 		}
-		inline void set_async_thread(int n)
-		{
-			this->parall_thread = n;
-		}
-		inline void set_async_thread()
-		{
-			this->parall_thread = get_cpu_cors();
-		}
 		inline void eval()
 		{
 			this->require_gradients = false;
@@ -158,14 +162,16 @@ namespace model_X
 			this->require_gradients = true;
 		}
 		void pass_gradients();
-		void pass_gradients(node* gradients);
+		void pass_gradients(storage* gradients);
 		/*
 		计算图通过一个单向的带有分支的链表来表示
 		当某一Operator的count_out>1时，该节点即为某一分支开始分裂的起点
 		所有分支通过Concator来进行合并（有+、-、*、/ 共四种Concator），（例如Resnet中的残差链接）
 		*/
+		virtual void set_async_thread(int n);
+		virtual void set_async_thread();
 		virtual Operator* get_pre();
-		virtual Node forward(Node input);
+		virtual storage forward(storage input) = 0;
 		virtual void backward(Optimizer::base_optimizer& opt);
 		virtual void zero_grad();
 		virtual void to_binay_file(ofstream& outfile);
@@ -179,9 +185,13 @@ namespace model_X
 		virtual void to_cpu();
 #endif
 	};
+	template<uint8_t layerid>
+	class layer_op
+	{};
 
 	//为了方便使用avx2，所有数据均用0补成8的整数倍的数量
-	class Conv_2d final:public Operator
+	template<>
+	class layer_op<LAYER_ID::CONV_2D> final:public Operator
 	{
 	private:
 		//卷积核参数
@@ -232,13 +242,13 @@ namespace model_X
 	public:
 		friend void conv_to_cuda(Conv_2d* conv);
 		friend void conv_to_cpu(Conv_2d* conv);
-		friend __global__ void conv_forward_helper(node* input, node* out, Conv_2d* conv);
-		friend void cuda_conv_forward(Node& input, Node& out, Conv_2d* conv);
+		friend __global__ void conv_forward_helper(storage* input, storage* out, Conv_2d* conv);
+		friend void cuda_conv_forward(storage& input, storage& out, Conv_2d* conv);
 		void to_cuda();
 		void to_cpu();
 #endif
 	public:
-		friend void __conv_async_helper(Node input, Node out, Conv_2d* conv,
+		friend void __conv_async_helper(storage input, storage out, Conv_2d* conv,
 			uint32_t tm_batch_steps, uint32_t out_cols,
 			uint32_t start, uint32_t end);
 
@@ -251,19 +261,19 @@ namespace model_X
 		{
 			return this->weights + channel*this->kernel_steps_pad;
 		}
-		Conv_2d();
-		Conv_2d(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
-		Node forward(Node input);
-		void random_init(int init_method = Normal);
-		void zero_grad();
-		void backward(Optimizer::base_optimizer& opt);
+		layer_op();
+		layer_op(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
+		storage forward(storage input) override;
+		void random_init(int init_method = Normal) override;
+		void zero_grad() override;
+		void backward(Optimizer::base_optimizer& opt) override;
 		void print_weight();
 		void print_bias();
 		//模型IO函数
-		void to_binay_file(ofstream& outfile);
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
-		~Conv_2d();
+		string info() override;
+		~layer_op() override;
 	};
 
 	class Dense final :public Operator
@@ -277,7 +287,7 @@ namespace model_X
 		uint32_t total_size;
 		bool with_bias;
 		uint8_t data_pad;
-		node* dout_dw = nullptr;
+		storage* dout_dw = nullptr;
 		DTYPE* dL_dw_now = nullptr;
 		DTYPE* dL_db_now = nullptr;
 		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
@@ -293,50 +303,51 @@ namespace model_X
 		friend class Optimizer::Momentum;
 		friend class Optimizer::RMSProp;
 		friend class Optimizer::Adam;
-		friend void __dense_async_helper(Node input, Node out, Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
+		friend void __dense_async_helper(storage input, storage out, Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
 
 		Dense();
 		Dense(uint32_t in_size, uint32_t out_size, bool with_bias = true);
-		void random_init(int init_method = Normal);
+		void random_init(int init_method = Normal) override;
 		inline DTYPE* get_channel_data(uint16_t c)
 		{
 			return this->weights + c*this->in_size_pad;
 		}
-		Node forward(Node input);
-		void backward(Optimizer::base_optimizer& opt);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
-		~Dense();
+		string info() override;
+		~Dense() override;
 	};
 	class Relu final: public Operator
 	{
 	public:
 		Relu();
-		Node forward(Node input);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
+		string info() override;
 	};
 	class Sigmoid final: public Operator
 	{
 	public:
 		Sigmoid();
-		Node forward(Node input);
-
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
+		string info() override;
 	};
 	class Soft_max final: public Operator
 	{
 	public:
 		Soft_max();
-		Node forward(Node input);
-
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
+		string info() override;
 	};
 	class Batch_normal_2d final : public Operator
 	{
@@ -352,7 +363,7 @@ namespace model_X
 		DTYPE* running_mean;
 		DTYPE* running_var;
 
-		node* dout_dw;
+		storage* dout_dw;
 		DTYPE* dout_din = nullptr;
 		DTYPE* dL_dw_now = nullptr;
 		DTYPE* dL_db_now = nullptr;
@@ -367,29 +378,27 @@ namespace model_X
 		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
-		Node forward(Node input);
-		void backward(Optimizer::base_optimizer& opt);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
 
-		string info();
+		string info() override;
 
-		~Batch_normal_2d();
+		~Batch_normal_2d() override;
 	};
 	class Max_pool final :public Operator
 	{
-	private:
-		uint8_t* dout_din;
 	public:
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Max_pool(uint8_t w = 2, uint8_t h = 2);
-		Node forward(Node input);
-		void backward(Optimizer::base_optimizer& opt);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
 
-		string info();
+		string info() override;
 	};
 	class Ave_pool final :public Operator
 	{
@@ -397,22 +406,22 @@ namespace model_X
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Ave_pool(uint8_t w = 2, uint8_t h = 2);
-		Node forward(Node input);
-		void backward(Optimizer::base_optimizer& opt);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
+		string info() override;
 	};
 	class Drop_out final : public Operator
 	{
 	public:
 		DTYPE rate;
 		Drop_out(float rate = 0.5);
-		Node forward(Node input);
-		void backward(Optimizer::base_optimizer& opt);
-		void to_binay_file(ofstream& outfile);
+		storage forward(storage input) override;
+		void backward(Optimizer::base_optimizer& opt) override;
+		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
-		string info();
+		string info() override;
 	};
 
 	class Concator :public Operator
@@ -425,6 +434,7 @@ namespace model_X
 		Operator* get_pre();
 		Operator*& get_O1();
 		Operator*& get_O2();
+		storage forward(storage input) override;
 		virtual void set_gradients() = 0;
 	};
 
@@ -432,7 +442,7 @@ namespace model_X
 	{
 	public:
 		Add(Operator* O1, Operator* O2);
-		void set_gradients();
+		void set_gradients() override;
 	};
 }
 

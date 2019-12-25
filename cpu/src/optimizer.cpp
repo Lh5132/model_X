@@ -1,5 +1,4 @@
 ﻿#include "optimizer.h"
-#include "layer.h"
 namespace model_X
 {
 	namespace Optimizer

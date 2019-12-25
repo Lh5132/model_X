@@ -1,7 +1,8 @@
 ﻿#include "model.h"
-#include "node.h"
+#include "storage.h"
 #include <iostream>
 #include <ctime>
+#include "optimizer.h"
 
 using namespace model_X;
 using namespace std;
@@ -9,7 +10,7 @@ using namespace std;
 
 void test_trans()
 {
-	Node n1 = Node_creater::creat(2,3,8,8);
+	storage n1 = storage_creater::creat(2,3,8,8);
 	n1->random_init();
 	cout << "原始矩阵: " << endl;
 	n1->print_data();
@@ -18,7 +19,7 @@ void test_trans()
 	conv.random_init();
 	conv.set_async_thread(4);
 	conv.print_weight();
-	Node n2 = conv.forward(n1);
+	storage n2 = conv.forward(n1);
 	cout << "输出" << endl;
 	n2->print_data();
 
@@ -28,7 +29,7 @@ void test_trans()
 	BN.train();
 	Relu relu = Relu();
 	Drop_out dp = Drop_out();
-	Node n5 = dp.forward(n2);
+	storage n5 = dp.forward(n2);
 	cout << "Drop_out输出" << endl;
 	n5->print_data();
 
@@ -36,12 +37,12 @@ void test_trans()
 	dense.set_async_thread(4);
 	dense.random_init();
 
-	Node n3 = dense.forward(n5);
+	storage n3 = dense.forward(n5);
 	cout << "全连接输出" << endl;
 	n3->print_data();
 
 	Soft_max sm = Soft_max();
-	Node n4 = sm.forward(n3);
+	storage n4 = sm.forward(n3);
 	cout << "softmax输出: " << endl;
 	n4->print_data();
 	getchar();
@@ -49,7 +50,7 @@ void test_trans()
 
 void test_speed()
 {
-	Node n1 = Node_creater::creat(1, 3, 224, 224);
+	storage n1 = storage_creater::creat(1, 3, 224, 224);
 	n1->random_init();
 	Conv_2d conv(3, 64, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
 	Relu relu = Relu();
@@ -60,7 +61,7 @@ void test_speed()
 	dn.set_async_thread();
 	conv.random_init();
 	conv.set_async_thread(8);
-	Node n2;
+	storage n2;
 	long t1 = clock();
 	n2 = conv.forward(n1);
 	long t2 = clock();
@@ -135,13 +136,13 @@ void test_model()
 	model.add_moudle(new Drop_out());
 	model.add_moudle(new Dense(4096, 1000));
 
-	Node input = Node_creater::creat(1, 3, 224, 224);
+	storage input = storage_creater::creat(1, 3, 224, 224);
 	input->random_init();
 	model.eval();
 	model.set_async_thread();
 	cout << "模型创建完成" << endl;
 	long start = clock();
-	Node out = model.forward(input);
+	storage out = model.forward(input);
 	long end = clock();
 	cout << "耗时: " << end - start << endl;
 	out->print_shape();
@@ -150,7 +151,7 @@ void test_model()
 }
 void test_conv_backward()
 {
-	Node n1 = Node_creater::creat(1, 3, 5, 5);
+	storage n1 = storage_creater::creat(1, 3, 5, 5);
 	float inp[] = { 0.8398, 0.0308, 0.0695, 0.6658, 0.3044, 0.4174, 0.5668, 0.7305, 0.2353,
 		0.4678, 0.9259, 0.6297, 0.0365, 0.3951, 0.5539, 0.6972, 0.5534, 0.1443,
 		0.5309, 0.1678, 0.4845, 0.6227, 0.6950, 0.9202, 0.6015, 0.6132, 0.7825,
@@ -178,9 +179,9 @@ void test_conv_backward()
 	conv.print_weight();
 	n1->require_grad();
 	conv.train();
-	Node n2 = conv.forward(n1);
+	storage n2 = conv.forward(n1);
 	n2->print_data();
-	conv.dL_dout = new node(1,2,5,5,true);
+	conv.dL_dout = new storage(1,2,5,5,true);
 	conv.dL_dout->set_one();
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);

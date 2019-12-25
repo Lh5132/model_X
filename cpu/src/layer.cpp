@@ -4,13 +4,15 @@
 
 
 #include "layer.h"
-#include "node.h"
+#include "storage.h"
 #include <algorithm>
 #include <cmath>
 #include <future>
 #include <iostream>
 #include <unordered_set>
 #include <vector>
+
+#include "optimizer.h"
 
 
 namespace model_X
@@ -19,7 +21,7 @@ namespace model_X
 	{
 		return 1 / (1 + exp(0 - input));
 	}
-	inline void check_save_input(node* input, bool save_input)
+	inline void check_save_input(storage* input, bool save_input)
 	{
 		if (!save_input)
 		{
@@ -59,7 +61,7 @@ namespace model_X
 			data = nullptr;
 		}
 	}
-	inline void remove_node(node*& n)
+	inline void remove_storage(storage*& n)
 	{
 		if (n)
 		{
@@ -85,11 +87,21 @@ namespace model_X
 		}
 	}
 
+	void Operator::set_async_thread(int n)
+	{
+		this->parall_thread = n;
+	}
+
+	void Operator::set_async_thread()
+	{
+		this->parall_thread = cpu_cors;
+	}
+
 	Operator* Operator::get_pre()
 	{
 		return pre;
 	}
-	Node Operator::forward(Node input) { return Node(); }
+	storage Operator::forward(storage input) { return storage(); }
 	void Operator::pass_gradients()
 	{
 		if (pre)
@@ -105,7 +117,7 @@ namespace model_X
 			}
 		}
 	}
-	void Operator::pass_gradients(node* gradients)
+	void Operator::pass_gradients(storage* gradients)
 	{
 		pre->dL_dout = gradients;
 	}
@@ -116,8 +128,8 @@ namespace model_X
 	void Operator::random_init(int init_method) {}
 	Operator::~Operator()
 	{
-		remove_node(dL_din);
-		remove_node(dL_dout);
+		remove_storage(dL_din);
+		remove_storage(dL_dout);
 	}
 #ifdef CUDA
 	void Operator::to_cuda() {}
@@ -141,7 +153,7 @@ namespace model_X
 		}
 		delete[] out_temp;
 	}
-	Conv_2d::Conv_2d() :
+	Conv_2d::layer_op() :
 		transform_matrix(nullptr),
 		k_w(0),
 		k_h(0),
@@ -159,7 +171,7 @@ namespace model_X
 		ID = LAYER_ID::CONV_2D;
 	}
 
-	Conv_2d::Conv_2d(
+	Conv_2d::layer_op(
 		uint16_t in_channels, 
 		uint16_t out_channels, 
 		uint8_t w, uint8_t h, 
@@ -219,7 +231,7 @@ namespace model_X
 	}
 #endif
 
-	void __conv_async_helper(Node input, Node out, Conv_2d* conv,
+	void __conv_async_helper(storage input, storage out, Conv_2d* conv,
 		uint32_t tm_batch_steps, uint32_t out_cols,
 		uint32_t start, uint32_t end)
 	{
@@ -294,7 +306,7 @@ namespace model_X
 	}
 
 
-	Node Conv_2d::forward(Node input)
+	storage Conv_2d::forward(storage input)
 	{
 		if (input->channels != in_channels)
 			throw "number of channels mismatch!";
@@ -319,7 +331,7 @@ namespace model_X
 		}
 		uint32_t out_rows = (input->rows + padding.top + padding.bottom - k_h) / strid.h + 1;
 		uint32_t out_cols = (input->cols + padding.left + padding.right - k_w) / strid.w + 1;
-		Node out = Node_creater::creat(input->batchsize, out_channels, out_rows, out_cols);
+		storage out = storage_creater::creat(input->batchsize, out_channels, out_rows, out_cols);
 		//构建中间矩阵
 		tm_cols = kernel_steps;
 		tm_cols_pad = kernel_steps_pad;
@@ -611,7 +623,7 @@ namespace model_X
 		return out;
 	}
 
-	Conv_2d::~Conv_2d()
+	Conv_2d::~layer_op()
 	{
 		k_w = 0;
 		k_h = 0;
@@ -633,8 +645,8 @@ namespace model_X
 		remove_new(dL_db);
 		remove_new(dL_db_1);
 		remove_new(dL_db_2);
-		remove_node(dL_din);
-		remove_node(dL_dout);
+		remove_storage(dL_din);
+		remove_storage(dL_dout);
 		remove_mylloc(dout_dw);
 		remove_new(dout_din_out_loc);
 		remove_new(dout_din_row_size);
@@ -705,7 +717,7 @@ namespace model_X
 			throw "Please identify init method(Normal or Uniform)";
 	}
 
-	void __dense_async_helper(Node input, Node out,Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end)
+	void __dense_async_helper(storage input, storage out,Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end)
 	{
 		if(dense->with_bias)
 			for (uint32_t j = start; j < end; j++)
@@ -715,11 +727,11 @@ namespace model_X
 				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size_pad) + dense->bias[j];
 	}
 
-	Node Dense::forward(Node input)
+	storage Dense::forward(storage input)
 	{
 		if (in_size_pad != input->batch_steps_pad)
 			throw "dims miss match!";
-		Node out = Node_creater::creat(input->batchsize, 1, 1, out_size);
+		storage out = storage_creater::creat(input->batchsize, 1, 1, out_size);
 		if (require_gradients)
 		{
 			if(!dout_dw)
@@ -863,18 +875,18 @@ namespace model_X
 		remove_new(dL_db);
 		remove_new(dL_db_1);
 		remove_new(dL_db_2);
-		remove_node(dout_dw);
+		remove_storage(dout_dw);
 		remove_new(dL_dw_now);
 		remove_new(dL_db_now);
-		remove_node(dL_din);
-		remove_node(dL_dout);
+		remove_storage(dL_din);
+		remove_storage(dL_dout);
 	}
 	Relu::Relu()
 	{
 		ID = LAYER_ID::RELU;
 	}
 
-	Node Relu::forward(Node input)
+	storage Relu::forward(storage input)
 	{
 		if (!require_gradients)
 		{
@@ -917,6 +929,21 @@ namespace model_X
 		}
 	}
 
+	void Relu::backward(Optimizer::base_optimizer & opt)
+	{
+		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		{
+			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			DTYPE* dL_din_data = dL_din->data + batch_loc;
+			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
+			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			{
+				if (dL_din_data[j] > 0)
+					dL_din_data[j] = dL_dout_data[j];
+			}
+		}
+	}
+
 	void Relu::to_binay_file(ofstream& outfile)
 	{
 		outfile.write((char*)&ID, sizeof(uint8_t));
@@ -938,7 +965,7 @@ namespace model_X
 		ID = LAYER_ID::SIGMOID;
 	}
 
-	Node Sigmoid::forward(Node input)
+	storage Sigmoid::forward(storage input)
 	{
 		if (!require_gradients)
 		{
@@ -961,9 +988,9 @@ namespace model_X
 				DTYPE* dL_din_data = dL_din->data + batch_loc;
 				for (uint32_t j = 0; j < input->batch_steps; j++)
 				{
-					DTYPE exp_ = exp(0 - res[i]);
-					res[i] = 1 / (1 + exp_);
-					dL_din_data[j] = pow(res[i], 2)*exp_;
+					DTYPE exp_ = exp(0 - res[j]);
+					res[j] = 1 / (1 + exp_);
+					dL_din_data[j] = pow(res[j], 2)*exp_;
 				}
 			}
 			if (input->creater)
@@ -973,6 +1000,20 @@ namespace model_X
 			}
 			input->creater = this;
 			return input;
+		}
+	}
+
+	void Sigmoid::backward(Optimizer::base_optimizer & opt)
+	{
+		for (uint16_t i = 0; i < dL_din->batchsize; i++)
+		{
+			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
+			DTYPE* dL_din_data = dL_din->data + batch_loc;
+			for (uint32_t j = 0; j < dL_din->batch_steps; j++)
+			{
+				dL_din_data[j] = dL_din_data[j] * dL_dout_data[j];
+			}
 		}
 	}
 
@@ -997,7 +1038,7 @@ namespace model_X
 		ID = LAYER_ID::SOFT_MAX;
 	}
 
-	Node Soft_max::forward(Node input)
+	storage Soft_max::forward(storage input)
 	{
 		if(!require_gradients)
 		for (int i = 0; i < input->batchsize; i++)
@@ -1023,7 +1064,7 @@ namespace model_X
 				for (uint32_t j = 0; j < input->batch_steps; j++)
 				{
 					res[j] = out_temp[j] / total;
-					dL_din_data[i] = out_temp[j] * (total - out_temp[j]) / pow(total, 2);
+					dL_din_data[j] = out_temp[j] * (total - out_temp[j]) / pow(total, 2);
 				}
 				delete[] out_temp;
 			}
@@ -1035,6 +1076,20 @@ namespace model_X
 			input->creater = this;
 		}
 		return input;
+	}
+
+	void Soft_max::backward(Optimizer::base_optimizer & opt)
+	{
+		for (int i = 0; i < dL_din->batchsize; i++)
+		{
+			uint32_t batch_loc = i*dL_din->batch_steps_pad;
+			DTYPE* dL_dout_data = dL_dout->data + batch_loc;
+			DTYPE* dL_din_data = dL_din->data + batch_loc;
+			for (uint32_t j = 0; j < dL_dout->batch_steps; j++)
+			{
+				dL_din_data[i] = dL_din_data[j] * dL_dout_data[j];
+			}
+		}
 	}
 
 	void Soft_max::to_binay_file(ofstream& outfile)
@@ -1084,7 +1139,7 @@ namespace model_X
 		}
 	}
 
-	Node Batch_normal_2d::forward(Node input)
+	storage Batch_normal_2d::forward(storage input)
 	{
 
 		if (require_gradients)
@@ -1294,9 +1349,9 @@ namespace model_X
 		ID = LAYER_ID::MAX_POOL;
 	}
 
-	Node Max_pool::forward(Node input)
+	storage Max_pool::forward(storage input)
 	{
-		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
+		storage out = storage_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
 		if (require_gradients)
 		{
 			if (!dL_din)
@@ -1436,9 +1491,9 @@ namespace model_X
 		ID = LAYER_ID::AVE_POOL;
 	}
 
-	Node Ave_pool::forward(Node input)
+	storage Ave_pool::forward(storage input)
 	{
-		Node out = Node_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
+		storage out = storage_creater::creat(input->batchsize, input->channels, input->rows / pool_h, input->cols / pool_w);
 		for (uint16_t b = 0; b < input->batchsize; b++)
 		{
 			for (uint16_t c = 0; c < input->channels; c++)
@@ -1536,7 +1591,7 @@ namespace model_X
 		ID = LAYER_ID::DROP_OUT;
 	}
 
-	Node Drop_out::forward(Node input)
+	storage Drop_out::forward(storage input)
 	{
 		if (!require_gradients)
 		{
@@ -1621,6 +1676,11 @@ namespace model_X
 	Operator*& Concator::get_O2()
 	{
 		return O2;
+	}
+
+	storage Concator::forward(storage input)
+	{
+		return storage();
 	}
 
 	Operator* Concator::get_pre()

@@ -1,9 +1,8 @@
 ﻿#pragma once
 #include "util.h"
+#include "layer.h"
 namespace model_X
 {
-	class Conv_2d;
-	class Dense;
 	namespace Optimizer
 	{
 		class base_optimizer

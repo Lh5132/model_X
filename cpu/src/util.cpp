@@ -26,7 +26,7 @@ namespace model_X
 		}
 	}
 #ifdef AVX_2
-	void add_avx(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size)
+	void add_avx(DTYPE* d1, DTYPE* d2, DTYPE* des, const uint32_t& size)
 	{
 		DTYPE out = 0;
 		uint32_t nblocks;
@@ -198,7 +198,7 @@ namespace model_X
 			apply_gradients_normal(grad, data, lr, size);
 	}
 #endif
-	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size)
+	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, const uint32_t& size)
 	{
 		for (uint32_t i = 0; i < size; i++)
 			des[i] = d1[i] + d2[2];

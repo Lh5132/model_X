@@ -29,10 +29,11 @@
 namespace model_X
 {
 
-#define DTYPE float
-#define DBYTES sizeof(DTYPE)
-#define MALLOC_ALIGN 32
-#define DATA_ALIGN 8
+using DTYPE = float;
+constexpr auto DBYTES = sizeof(float);
+constexpr auto MALLOC_ALIGN = 32;
+constexpr auto DATA_ALIGN = 8;
+
 
 	using namespace std;
 	
@@ -58,7 +59,7 @@ namespace model_X
 	void myfree(DTYPE*& p);
 
 #ifdef AVX_2
-	void add_avx(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size);
+	void add_avx(DTYPE* d1, DTYPE* d2, DTYPE* des, const uint32_t& size);
 	DTYPE muladd_avx(DTYPE* d1, DTYPE* d2, uint32_t& size);
 	DTYPE sum_avx(DTYPE* d1, uint32_t& size);
 	DTYPE var_avx(DTYPE* d1, DTYPE& mean, uint32_t& size);
@@ -66,7 +67,7 @@ namespace model_X
 	void apply_gradients_avx(DTYPE* grad, DTYPE* data, DTYPE lr, uint32_t& size);
 
 #endif
-	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, uint32_t& size);
+	void add_normal(DTYPE* d1, DTYPE* d2, DTYPE* des, const uint32_t& size);
 	DTYPE muladd_normal(DTYPE* d1, DTYPE* d2, uint32_t& size);
 	DTYPE sum_normal(DTYPE* d1, uint32_t& size);
 	DTYPE var_normal(DTYPE* d1, DTYPE& mean, uint32_t& size);
