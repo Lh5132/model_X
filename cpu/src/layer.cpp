@@ -101,7 +101,7 @@ namespace model_X
 	{
 		return pre;
 	}
-	tensor Operator::forward(tensor input) { return tensor(); }
+
 	void Operator::pass_gradients()
 	{
 		if (pre)
@@ -166,6 +166,8 @@ namespace model_X
 		bias(nullptr),
 		strid(conv_stride()),
 		padding(conv_padding()),
+		tm_cols(0),
+		tm_rows(0),
 		with_bias(false)
 	{
 		ID = LAYER_ID::CONV_2D;
@@ -186,7 +188,9 @@ namespace model_X
 		kernel_size(w*h),
 		strid(strid),
 		padding(padding),
-		with_bias(with_bias)
+		with_bias(with_bias),
+		tm_cols(0),
+		tm_rows(0)
 	{
 		ID = LAYER_ID::CONV_2D;
 		kernel_steps = kernel_size*in_channels;
@@ -210,50 +214,51 @@ namespace model_X
 	}
 #endif
 
-	void __conv_async_helper(tensor input, tensor out, Conv_2d* conv,
+	void __conv_async_helper(storage* input, storage* out, Conv_2d* conv,
 		uint32_t tm_batch_steps, uint32_t out_cols,
 		uint32_t start, uint32_t end)
 	{
-		for (uint32_t ii = 0; ii < end; ii++)
+		for (uint32_t ii = 0; ii < out->dim_steps[1]; ii++)
 		{
 			int out_row_loc = ii / out_cols;
-			int out_col_loc = ii - out_row_loc*out_cols;
-			int i = out_row_loc*conv->strid.h - conv->padding.top;
-			int j = out_col_loc*conv->strid.w - conv->padding.left;
+			int out_col_loc = ii - out_row_loc * out_cols;
+			int i = out_row_loc * conv->strid.h - conv->padding.top;
+			int j = out_col_loc * conv->strid.w - conv->padding.left;
 			uint32_t tm_row_loc = ii * conv->tm_cols;
 			DTYPE* dout_dw_channel;
 			uint32_t batch_loc, dw_where;
 			DTYPE* out_data;
 			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
-				out_data = out->get_data() + b * out->dim_steps[0];
-				uint32_t batch_start = b*tm_batch_steps;
-				if (conv->is_gradiets())
+				out_data = out->data + b * out->dim_steps[0];
+				uint32_t batch_start = b * tm_batch_steps;
+				if (conv->require_gradients)
 				{
-					batch_loc = b*conv->tm_cols*conv->tm_rows;
+					batch_loc = b * conv->tm_cols * conv->tm_rows;
 				}
 				for (uint16_t c = 0; c < input->dims.d[1]; c++)
 				{
-					uint32_t tm_row_ch_loc = c*conv->kernel_size;
+					uint32_t tm_row_ch_loc = c * conv->kernel_size;
 					DTYPE* input_data = input->data + b * input->dim_steps[0] + c * input->dim_steps[1];
 					for (uint8_t krow = 0; krow < conv->k_h; krow++)
 					{
 						for (uint8_t kcol = 0; kcol < conv->k_w; kcol++)
 						{
-							uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*conv->k_w + kcol;
-							if (conv->is_gradiets())
-								dw_where = batch_loc + (tm_row_ch_loc + krow*conv->k_w + kcol)*conv->tm_rows + ii;
+							uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow * conv->k_w + kcol;
+							if (conv->require_gradients)
+								dw_where = batch_loc + (tm_row_ch_loc + krow * conv->k_w + kcol) * conv->tm_rows + ii;
 							if ((i + krow) >= 0 && (i + krow) < input->dims.d[2] && (j + kcol) >= 0 && (j + kcol) < input->dims.d[3])
 							{
-								conv->transform_matrix[where] = *(input_data + (i + krow)* input->dims.d[2] + j + kcol);
-								if (conv->is_gradiets())
+								uint32_t ll = (i + krow) * input->dims.d[3] + j + kcol;
+								conv->transform_matrix[where] = input_data[(i + krow) * input->dims.d[3] + j + kcol];
+								if (conv->require_gradients)
 								{
 									conv->dout_dw[dw_where] = conv->transform_matrix[where];
 									if (c == 0)
 									{
-										uint32_t inp_loc = (i + krow)* input->dims.d[3] + (j + kcol);
-										conv->dout_din_w_loc[inp_loc*conv->kernel_size + conv->dout_din_row_size[inp_loc]] = krow*conv->k_w + kcol;
-										conv->dout_din_out_loc[inp_loc*conv->kernel_size + conv->dout_din_row_size[inp_loc]] = ii;
+										uint32_t inp_loc = (i + krow) * input->dims.d[3] + (j + kcol);
+										conv->dout_din_w_loc[inp_loc * conv->kernel_size + conv->dout_din_row_size[inp_loc]] = krow * conv->k_w + kcol;
+										conv->dout_din_out_loc[inp_loc * conv->kernel_size + conv->dout_din_row_size[inp_loc]] = ii;
 										conv->dout_din_row_size[inp_loc] += 1;
 									}
 								}
@@ -269,7 +274,7 @@ namespace model_X
 				}
 				for (uint16_t cc = 0; cc < conv->out_channels; cc++)
 				{
-					DTYPE* data = out_data + cc * out->get_dim_steps(1);
+					DTYPE* data = out_data + cc * out->dim_steps[1];
 					if (conv->with_bias)
 						data[ii] = MUL_ADD(conv->get_channel_data(cc),
 							conv->transform_matrix + batch_start + tm_row_loc, conv->tm_cols) + conv->bias[cc];
@@ -280,11 +285,9 @@ namespace model_X
 			}
 		}
 	}
-
-
-	tensor Conv_2d::forward(tensor input)
+	tensor Conv_2d::forward(tensor& input)
 	{
-		if (input->get_dims(1) != in_channels && input->get_ndims != 4)
+		if (input->dims.d[1] != in_channels && input->ndims != 4)
 			throw "number of channels mismatch!";
 		if (padding.Padding_style == PADDING_STYLE::SAME)
 		{
@@ -307,7 +310,8 @@ namespace model_X
 		}
 		uint32_t out_rows = (input->dims.d[2] + padding.top + padding.bottom - k_h) / strid.h + 1;
 		uint32_t out_cols = (input->dims.d[3] + padding.left + padding.right - k_w) / strid.w + 1;
-		tensor out({ input->get_dims(0), out_channels, out_rows, out_cols });
+		dimension d = { (int)input->get_dims(0), (int)out_channels, (int)out_rows, (int)out_cols };
+		tensor out(d);
 		//构建中间矩阵
 		tm_cols = kernel_steps;
 		tm_rows = out_rows*out_cols;
@@ -334,10 +338,10 @@ namespace model_X
 			future<void>* fn = new future<void>[parall_thread];
 			for (uint8_t i = 0; i < parall_thread - 1; i++)
 			{
-				fn[i] = async(launch::async, __conv_async_helper, input, out, this,
+				fn[i] = async(launch::async, __conv_async_helper, input.get(), out.get(), this,
 					tm_batch_steps, out_cols, base_n*i, base_n*(i + 1));
 			}
-			fn[parall_thread - 1] = async(launch::async, __conv_async_helper, input, out, this,
+			fn[parall_thread - 1] = async(launch::async, __conv_async_helper, input.get(), out.get(), this,
 				tm_batch_steps, out_cols, base_n*(parall_thread - 1), out->dim_steps[1]);
 			for (int i = 0; i < parall_thread; i++)
 				fn[i].wait();
@@ -372,12 +376,13 @@ namespace model_X
 							for (uint8_t kcol = 0; kcol < k_w; kcol++)
 							{
 								uint32_t where = batch_start + tm_row_loc + tm_row_ch_loc + krow*k_w + kcol;
-								if (is_gradiets())
+								if (require_gradients)
 									dw_where = batch_loc + (tm_row_ch_loc + krow*k_w + kcol)*tm_rows + ii;
 								if ((i + krow) >= 0 && (i + krow) < input->dims.d[2] && (j + kcol) >= 0 && (j + kcol) < input->dims.d[3])
 								{
-									transform_matrix[where] = *(input_data + (i + krow)*input->dims.d[3] + j + kcol);
-									if (is_gradiets())
+									uint32_t ll = (i + krow) * input->dims.d[3] + j + kcol;
+									transform_matrix[where] = input_data[(i + krow) * input->dims.d[3] + j + kcol];
+									if (require_gradients)
 									{
 										dout_dw[dw_where] = transform_matrix[where];
 										if (c == 0)
@@ -401,7 +406,6 @@ namespace model_X
 					for (uint16_t cc = 0; cc < out_channels; cc++)
 					{
 						DTYPE* data = out_data + cc * out->dim_steps[1];
-						data = out->data + b * out->dim_steps[0] + cc * out->get_dim_steps[1];
 						if (with_bias)
 							data[ii] = MUL_ADD(get_channel_data(cc),
 								transform_matrix + batch_start + tm_row_loc, tm_cols) + bias[cc];
@@ -412,6 +416,15 @@ namespace model_X
 				}
 			}
 		}
+		//for (int i = 0; i < tm_rows; i++)
+		//{
+		//	uint32_t row_loc = i * tm_cols;
+		//	for (int j = 0; j < tm_cols; j++)
+		//	{
+		//		cout << transform_matrix[row_loc + j] << ",";
+		//	}
+		//	cout << endl;
+		//}
 		myfree(transform_matrix);
 		if (require_gradients)
 		{
@@ -427,9 +440,9 @@ namespace model_X
 
 	void Conv_2d::random_init(int init_method)
 	{
-		srand(clock());
 		if (init_method == Uniform)
 		{
+			srand(clock());
 			for(uint32_t i=0;i<total_size;i++)
 				weights[i] = random_uniform();
 		}
@@ -497,12 +510,12 @@ namespace model_X
 				}
 			}
 		}
-		//for (uint16_t i = 0; i < dw_size; i++)
+		//for (uint16_t i = 0; i < total_size; i++)
 		//{
 		//	cout << dL_dw_now[i] << ",";
 		//}
 		//cout << endl;
-		opt.apply_gradients(this);
+		//opt.apply_gradients(this);
 	}
 	void Conv_2d::print_weight()
 	{
@@ -607,11 +620,12 @@ namespace model_X
 		remove_new(dout_din_w_loc);
 	}
 
-	Dense::Dense():
+	Dense::Dense() :
 		weights(nullptr),
 		bias(nullptr),
 		in_size(0),
 		out_size(0),
+		total_size(0),
 		with_bias(false)
 	{
 		ID = LAYER_ID::DENSE;
@@ -659,11 +673,12 @@ namespace model_X
 				res[j] = MUL_ADD(dense->get_channel_data(j), inp, dense->in_size) + dense->bias[j];
 	}
 
-	tensor Dense::forward(tensor input)
+	tensor Dense::forward(tensor& input)
 	{
 		if (in_size != input->dims.d[1] || input->ndims !=2)
 			throw "dims miss match!";
-		tensor out({ input->dims.d[0], out_size });
+		dimension d = { (int)input->dims.d[0], (int)out_size };
+		tensor out(d);
 		if (require_gradients)
 		{
 			if(!dout_dw)
@@ -812,7 +827,7 @@ namespace model_X
 		ID = LAYER_ID::RELU;
 	}
 
-	tensor Relu::forward(tensor input)
+	tensor Relu::forward(tensor& input)
 	{
 		if (!require_gradients)
 		{
@@ -891,7 +906,7 @@ namespace model_X
 		ID = LAYER_ID::SIGMOID;
 	}
 
-	tensor Sigmoid::forward(tensor input)
+	tensor Sigmoid::forward(tensor& input)
 	{
 		if (!require_gradients)
 		{
@@ -964,7 +979,7 @@ namespace model_X
 		ID = LAYER_ID::SOFT_MAX;
 	}
 
-	tensor Soft_max::forward(tensor input)
+	tensor Soft_max::forward(tensor& input)
 	{
 		if(!require_gradients)
 		for (int i = 0; i < input->dims.d[0]; i++)
@@ -1065,7 +1080,7 @@ namespace model_X
 		}
 	}
 
-	tensor Batch_normal_2d::forward(tensor input)
+	tensor Batch_normal_2d::forward(tensor& input)
 	{
 
 		if (require_gradients)
@@ -1283,9 +1298,10 @@ namespace model_X
 		ID = LAYER_ID::MAX_POOL;
 	}
 
-	tensor Max_pool::forward(tensor input)
+	tensor Max_pool::forward(tensor& input)
 	{
-		tensor out({ input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w });
+		dimension d = { input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w };
+		tensor out(d);
 		if (require_gradients)
 		{
 			if (!dL_din)
@@ -1425,9 +1441,10 @@ namespace model_X
 		ID = LAYER_ID::AVE_POOL;
 	}
 
-	tensor Ave_pool::forward(tensor input)
+	tensor Ave_pool::forward(tensor& input)
 	{
-		tensor out({ input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w });
+		dimension d = { input->dims.d[0], input->dims.d[1], input->dims.d[2] / pool_h, input->dims.d[3] / pool_w };
+		tensor out(d);
 		for (uint16_t b = 0; b < input->dims.d[0]; b++)
 		{
 			for (uint16_t c = 0; c < input->dims.d[1]; c++)
@@ -1525,7 +1542,7 @@ namespace model_X
 		ID = LAYER_ID::DROP_OUT;
 	}
 
-	tensor Drop_out::forward(tensor input)
+	tensor Drop_out::forward(tensor& input)
 	{
 		srand(clock());
 		if (!require_gradients)
@@ -1607,7 +1624,7 @@ namespace model_X
 		return O2;
 	}
 
-	tensor Concator::forward(tensor input)
+	tensor Concator::forward(tensor& input)
 	{
 		return tensor();
 	}

@@ -19,11 +19,11 @@ namespace model_X
 
 	namespace Loss_Functions
 	{
-		Loss BCELoss(const storage& output, const storage& ground_truth);
-		Loss MSELoss(const storage& output, const storage& ground_truth);
-		Loss SOFTMAXLoss(const storage& output, const storage& ground_truth);
-		Loss BCEWithLogitsLoss(const storage& output, const storage& ground_truth);
-		Loss MSEWithLogitsLoss(const storage& output, const storage& ground_truth);
-		Loss SOFTMAXWithLogitsLoss(const storage& output, const storage& ground_truth);
+		Loss BCELoss(const tensor& output, const tensor& ground_truth);
+		Loss MSELoss(const tensor& output, const tensor& ground_truth);
+		Loss SOFTMAXLoss(const tensor& output, const tensor& ground_truth);
+		Loss BCEWithLogitsLoss(const tensor& output, const tensor& ground_truth);
+		Loss MSEWithLogitsLoss(const tensor& output, const tensor& ground_truth);
+		Loss SOFTMAXWithLogitsLoss(const tensor& output, const tensor& ground_truth);
 	}
 }

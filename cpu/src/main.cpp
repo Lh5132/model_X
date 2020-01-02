@@ -6,89 +6,25 @@
 
 using namespace model_X;
 using namespace std;
-
-
-void test_trans()
+void test_se()
 {
-	storage n1 = storage_creater::creat(2,3,8,8);
-	n1->random_init();
-	cout << "原始矩阵: " << endl;
-	n1->print_data();
-
-	Conv_2d conv(3, 2, 3, 3, conv_stride(1,1), conv_padding(PADDING_STYLE::	SAME));
-	conv.random_init();
-	conv.set_async_thread(4);
-	conv.print_weight();
-	storage n2 = conv.forward(n1);
-	cout << "输出" << endl;
-	n2->print_data();
-
-
-	Batch_normal_2d BN = Batch_normal_2d(2);
-	Max_pool mp = Max_pool(2,2);
-	BN.train();
-	Relu relu = Relu();
-	Drop_out dp = Drop_out();
-	storage n5 = dp.forward(n2);
-	cout << "Drop_out输出" << endl;
-	n5->print_data();
-
-	Dense dense(n5->batch_steps, 8, true);
-	dense.set_async_thread(4);
-	dense.random_init();
-
-	storage n3 = dense.forward(n5);
-	cout << "全连接输出" << endl;
-	n3->print_data();
-
-	Soft_max sm = Soft_max();
-	storage n4 = sm.forward(n3);
-	cout << "softmax输出: " << endl;
-	n4->print_data();
-	getchar();
+	tensor input({ 1,3,8,8 });
+	input->random_init();
+	Conv_2d conv1(3, 2, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
+	conv1.random_init();
+	input = conv1.forward(input);
+	cout << input->data_str() << endl;
+	Batch_normal_2d bn1 = Batch_normal_2d(2);
+	bn1.train();
+	input = bn1.forward(input);
+	cout << input->data_str() << endl;
+	Relu re = Relu();
+	input = re.forward(input);
+	cout << input->data_str() << endl;
+	Max_pool p = Max_pool();
+	input = p.forward(input);
+	cout << input->data_str() << endl;
 }
-
-void test_speed()
-{
-	storage n1 = storage_creater::creat(1, 3, 224, 224);
-	n1->random_init();
-	Conv_2d conv(3, 64, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
-	Relu relu = Relu();
-	Max_pool mp = Max_pool(2, 2);
-	Batch_normal_2d BN = Batch_normal_2d(512);
-	Drop_out dp = Drop_out(0.5);
-	Dense dn = Dense(n1->batch_steps, 1000);
-	dn.set_async_thread();
-	conv.random_init();
-	conv.set_async_thread(8);
-	storage n2;
-	long t1 = clock();
-	n2 = conv.forward(n1);
-	long t2 = clock();
-	cout << "conv: " << t2 - t1 << endl;
-	t1 = clock();
-	n2 = BN.forward(n2);
-	t2 = clock();
-	cout << "BN: " << t2 - t1 << endl;
-	t1 = clock();
-	n2 = dp.forward(n2);
-	t2 = clock();
-	cout << "dp: " << t2 - t1 << endl;
-	t1 = clock();
-	n2 = relu.forward(n2);
-	t2 = clock();
-	cout << "relu: " << t2 - t1 << endl;
-	t1 = clock();
-	n2 = mp.forward(n2);
-	t2 = clock();
-	cout << "max_pool: " << t2 - t1 << endl;
-	t1 = clock();
-	n2 = dn.forward(n1);
-	t2 = clock();
-	cout << "dense: " << t2 - t1 << endl;
-	getchar();
-}
-
 void test_model()
 {
 	Sequential model = Sequential();
@@ -120,75 +56,91 @@ void test_model()
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
-	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Relu());
-	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Relu());
-	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Relu());
-	model.add_moudle(new Max_pool(2, 2));
+	//model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
+	//model.add_moudle(new Relu());
+	//model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
+	//model.add_moudle(new Relu());
+	//model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
+	//model.add_moudle(new Relu());
+	//model.add_moudle(new Max_pool(2, 2));
 
-	model.add_moudle(new Dense(25088, 4096));
-	model.add_moudle(new Relu());
-	model.add_moudle(new Drop_out());
-	model.add_moudle(new Dense(4096, 4096));
-	model.add_moudle(new Relu());
-	model.add_moudle(new Drop_out());
-	model.add_moudle(new Dense(4096, 1000));
+	model.add_moudle(new Conv_2d(512, 1, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
 
-	storage input = storage_creater::creat(1, 3, 224, 224);
-	input->random_init();
+	//model.add_moudle(new Dense(25088, 4096));
+	//model.add_moudle(new Relu());
+	//model.add_moudle(new Drop_out());
+	//model.add_moudle(new Dense(4096, 4096));
+	//model.add_moudle(new Relu());
+	//model.add_moudle(new Drop_out());
+	//model.add_moudle(new Dense(4096, 1000));
+
+	tensor input({ 1, 3, 128, 128 });
+	input->random_init(Normal);
+	cout << "张量初始化完成" << endl;
 	model.eval();
-	model.set_async_thread();
+	model.random_init();
+	//model.set_async_thread();
 	cout << "模型创建完成" << endl;
 	long start = clock();
-	storage out = model.forward(input);
+	tensor out = model.forward(input);
 	long end = clock();
 	cout << "耗时: " << end - start << endl;
-	out->print_shape();
+	cout << out->data_str() << endl;
 	cout << endl;
-	getchar();
+}
+void test_speed()
+{
+	tensor n1({ 5, 3, 224, 224 });
+	n1->random_init();
+	Conv_2d conv(3, 64, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
+	conv.random_init(Uniform);
+	long start = clock();
+	tensor n2 = conv.forward(n1);
+	cout << clock() - start << endl;
 }
 void test_conv_backward()
 {
-	storage n1 = storage_creater::creat(1, 3, 5, 5);
-	float inp[] = { 0.8398, 0.0308, 0.0695, 0.6658, 0.3044, 0.4174, 0.5668, 0.7305, 0.2353,
-		0.4678, 0.9259, 0.6297, 0.0365, 0.3951, 0.5539, 0.6972, 0.5534, 0.1443,
-		0.5309, 0.1678, 0.4845, 0.6227, 0.6950, 0.9202, 0.6015, 0.6132, 0.7825,
-		0.8218, 0.5978, 0.9807, 0.7549, 0.3665, 0.8232, 0.3721, 0.4600, 0.6462,
-		0.1541, 0.2583, 0.4188, 0.0606, 0.6783, 0.3117, 0.7399, 0.9236, 0.1688,
-		0.6016, 0.4300, 0.5211, 0.2801, 0.3428, 0.9276, 0.5343, 0.6967, 0.0819,
-		0.5186, 0.1484, 0.2159, 0.7510, 0.6419, 0.4928, 0.6240, 0.7414, 0.2302,
-		0.6409, 0.6579, 0.6359, 0.7092, 0.5766, 0.4834, 0.6631, 0.1424, 0.0218,
-		0.7714, 0.9141, 0.9634 };
-	memcpy(n1->get_batch_data(0), inp, 75 * sizeof(float));
-	n1->print_data();
+	tensor n1({ 1, 3, 5, 5 });
+	float inp[] = { 0.4505, 0.5432, 0.3538, 0.2683, 0.9527, 0.7076, 0.5039, 0.0413, 0.2213,
+		 0.6359, 0.0243, 0.4561, 0.2465, 0.9162, 0.4251, 0.4000, 0.5490, 0.7518,
+		 0.6632, 0.0949, 0.3027, 0.0211, 0.9481, 0.4599, 0.0878, 0.8645, 0.9962,
+		 0.7921, 0.8872, 0.5810, 0.5058, 0.4611, 0.4693, 0.2406, 0.7789, 0.8154,
+		 0.3768, 0.8028, 0.5361, 0.9896, 0.5685, 0.6981, 0.5756, 0.0677, 0.9244,
+		 0.5574, 0.4666, 0.8971, 0.1526, 0.4587, 0.0577, 0.2414, 0.9990, 0.7603,
+		 0.6704, 0.3985, 0.1825, 0.5981, 0.3576, 0.6132, 0.3267, 0.2906, 0.7497,
+		 0.6642, 0.9261, 0.7905, 0.0202, 0.9172, 0.5581, 0.9457, 0.1529, 0.9926,
+		 0.6390, 0.6889, 0.4041 };
+	memcpy(n1->data, inp, 75 * sizeof(float));
 	Conv_2d conv(3, 2, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
-	float w1[] = { -0.0949, -0.0137,  0.1447,  0.1564,  0.1240, -0.0569, -0.1180,  0.0368,
-		0.1126, -0.1686, -0.1784, -0.1684,  0.0618, -0.0641, -0.1098,  0.1559,
-		0.0911, -0.0465, -0.0648,  0.1606, -0.1355, -0.0502,  0.0205,  0.1804,
-		-0.0304,  0.0491, -0.0552 };
-	float w2[] = { -0.1661,  0.0395,  0.1818,  0.0101, -0.0310,  0.1640, -0.0512, -0.1813,
-		0.0333,  0.1029, -0.0351,  0.0250, -0.0777, -0.0914,  0.1260, -0.1758,
-		-0.1844, -0.1249,  0.0299, -0.0903,  0.1078,  0.0378,  0.1167, -0.1790,
-		-0.1239, -0.1832, -0.1589 };
+	float w1[] = { 0.0186, -0.0192, -0.1690, -0.0426,  0.1220, -0.0698,  0.0753, -0.0977,
+		  0.1788, -0.0088,  0.1169, -0.0845, -0.0489,  0.0175,  0.1540, -0.1543,
+		  0.1405,  0.1027,  0.0414,  0.1138, -0.1183,  0.0334, -0.1226, -0.1102,
+		  0.0828,  0.1615, -0.0757 };
+	float w2[] = { 0.0832, -0.0445, -0.1633,  0.1340,  0.0226,  0.0902,  0.0997,  0.0286,
+		 -0.0935, -0.1384, -0.1208,  0.0169,  0.1702,  0.1334, -0.0225, -0.0970,
+		 -0.0201, -0.0823,  0.0403, -0.1212,  0.0010,  0.0538,  0.1235,  0.1898,
+		  0.0134,  0.1350,  0.0833 };
 
+	float bias[] = { -0.1674,  0.1276 };
+
+	memcpy(conv.bias, bias, 2 * sizeof(float));
 	memcpy(conv.get_channel_data(0), w1, 27 * sizeof(float));
 	memcpy(conv.get_channel_data(1), w2, 27 * sizeof(float));
 
 	conv.print_weight();
-	n1->require_grad();
 	conv.train();
-	storage n2 = conv.forward(n1);
-	n2->print_data();
-	conv.dL_dout = new storage(1,2,5,5,true);
+	cout << n1->data_str() << endl;
+	tensor n2 = conv.forward(n1);
+	cout << n2->data_str() << endl;;
+	conv.dL_dout = new storage({ 1,2,5,5 });
 	conv.dL_dout->set_one();
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
-	conv.dL_din->print_data();
-	getchar();
+	
+	cout << conv.dL_din->data_str() << endl;
+
 }
 int main(int arc, char** argv)
 {
-	test_conv_backward();
+	test_model();
 }

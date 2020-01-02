@@ -74,65 +74,65 @@ namespace model_X
 	namespace Loss_Functions
 	{
 
-		Loss BCELoss(const storage& output, const storage& ground_truth)
+		Loss BCELoss(const tensor& output, const tensor& ground_truth)
 		{
-			if (output->batch_steps > 1)
+			if (output->dim_steps[0] > 1)
 			{
 				throw "BCELoss requires single output";
 			}
 			DTYPE out = 0;
 			if(!output->creater->dL_dout)
 				output->creater->dL_dout = output->copy(false);
-			for (uint16_t c = 0; c < output->batchsize; c++)
+			for (uint16_t c = 0; c < output->dims.d[0]; c++)
 			{
-				DTYPE exp_ = exp(0 - output->get_batch_data(c)[0]);
+				DTYPE exp_ = exp(0 - output->data[c]);
 				DTYPE predict = 1 / (1 + exp_);
-				DTYPE* gradient_batch = output->creater->dL_dout->get_batch_data(c);
-				if (ground_truth->get_batch_data(c)[0] == 0.0f)
+				DTYPE* gradient_batch = output->creater->dL_dout->data + c;
+				if (ground_truth->data[c] == 0.0f)
 				{
 					out -= log(1 - predict);
-					*gradient_batch = predict / output->batchsize;
+					*gradient_batch = predict / output->dims.d[0];
 				}
 				else
 				{
 					out -= log(predict);
-					*gradient_batch = (predict -1) / output->batchsize;
+					*gradient_batch = (predict -1) / output->dims.d[0];
 				}
 			}
-			Loss l(output->creater, out / output->batchsize);
+			Loss l(output->creater, out / output->dims.d[0]);
 			return l;
 		}
-		Loss MSELoss(const storage& output, const storage& ground_truth)
+		Loss MSELoss(const tensor& output, const tensor& ground_truth)
 		{
-			if (output->batch_steps > 1)
+			if (output->dims.d[0] > 1)
 			{
 				throw "BCELoss requires single output";
 			}
 			DTYPE out = 0;
 			output->creater->dL_dout = output->copy(false);
-			for (uint16_t c = 0; c < output->batchsize; c++)
+			for (uint16_t c = 0; c < output->dims.d[0]; c++)
 			{
-				DTYPE* gradient_batch = output->creater->dL_dout->get_batch_data(c);
-				out += pow((output->get_batch_data(c)[0] - ground_truth->get_batch_data(c)[0]), 2) / 2;
-				*gradient_batch = (output->get_batch_data(c)[0] - ground_truth->get_batch_data(c)[0]) / output->batchsize;
+				DTYPE* gradient_batch = output->creater->dL_dout->data + c;
+				out += pow((output->data[c] - ground_truth->data[c]), 2) / 2;
+				*gradient_batch = (output->data[c] - ground_truth->data[c]) / output->dims.d[0];
 			}
-			Loss l(output->creater, out / output->batchsize);
+			Loss l(output->creater, out / output->dims.d[0]);
 			return l;
 		}
-		Loss SOFTMAXLoss(const storage& output, const storage& ground_truth)
+		Loss SOFTMAXLoss(const tensor& output, const tensor& ground_truth)
 		{
-			if (output->batch_steps == 1)
+			if (output->dims.d[0] == 1)
 			{
 				throw "SOFTMAXLoss requires muti output";
 			}
 			DTYPE out = 0;
 			output->creater->dL_dout = output->copy(false);
-			DTYPE* predict = new DTYPE[output->batchsize*output->batch_steps]{};
-			DTYPE* exp_ = new DTYPE[output->batchsize*output->batch_steps]{};
-			for (uint16_t c = 0; c < output->batchsize; c++)
+			DTYPE* predict = new DTYPE[output->dims.d[0]*output->dims.d[0]]{};
+			DTYPE* exp_ = new DTYPE[output->dims.d[0]*output->dims.d[0]]{};
+			for (uint16_t c = 0; c < output->dims.d[0]; c++)
 			{
-				uint32_t pad_loc = c*output->batch_steps_pad;
-				uint32_t loc = c*output->batch_steps;
+				uint32_t pad_loc = c*output->dims.d[0];
+				uint32_t loc = c*output->dims.d[0];
 				DTYPE* out_put_data = output->data + pad_loc;
 				DTYPE* ground_truth_data = ground_truth->data + pad_loc;
 				DTYPE batch_loss = 0;
@@ -140,54 +140,54 @@ namespace model_X
 				DTYPE* predict_batch = predict + loc;
 				DTYPE total = 0;
 				DTYPE* exp_batch = exp_ + loc;
-				for (uint16_t i = 0; i < output->batch_steps; i++)
+				for (uint16_t i = 0; i < output->dims.d[0]; i++)
 				{
 					exp_[i] = exp(out_put_data[i]);
 					total += exp_[i];
 				}
-				for (uint16_t i = 0; i < output->batch_steps; i++)
+				for (uint16_t i = 0; i < output->dims.d[0]; i++)
 				{
 					predict_batch[i] = exp_[i]/total;
 					if (ground_truth_data[i] == 0.0f)
 					{
 						batch_loss -= log(1 - predict_batch[i]);
-						gradient_batch[i] = exp_batch[i]/total / output->batchsize;
+						gradient_batch[i] = exp_batch[i]/total / output->dims.d[0];
 					}
 					else
 					{
 						batch_loss -= log(predict_batch[i]);
-						gradient_batch[i] = (exp_batch[i] - total) / total / output->batchsize;
+						gradient_batch[i] = (exp_batch[i] - total) / total / output->dims.d[0];
 					}
 				}
 				out += batch_loss;
 			}
-			Loss l(output->creater, out / output->batchsize);
+			Loss l(output->creater, out / output->dims.d[0]);
 			return l;
 		}
-		Loss BCEWithLogitsLoss(const storage& output, const storage& ground_truth)
+		Loss BCEWithLogitsLoss(const tensor& output, const tensor& ground_truth)
 		{
-			if (output->batch_steps > 1)
+			if (output->dims.d[0] > 1)
 			{
 				throw "BCELoss requires single output";
 			}
 			DTYPE out = 0;
 			output->creater->dL_dout = output->copy(false);
-			for (uint16_t c = 0; c < output->batchsize; c++)
+			for (uint16_t c = 0; c < output->dims.d[0]; c++)
 			{
-				DTYPE predict = output->get_batch_data(c)[0];
-				DTYPE* gradient_batch = output->creater->dL_dout->get_batch_data(c);
-				if (ground_truth->get_batch_data(c)[0] == 0.0f)
+				DTYPE predict = output->data[c];
+				DTYPE* gradient_batch = output->creater->dL_dout->data + c;
+				if (ground_truth->data[c] == 0.0f)
 				{
 					out -= log(1 - predict);
-					*gradient_batch = 1 / (1 - predict) / output->batchsize;
+					*gradient_batch = 1 / (1 - predict) / output->dims.d[0];
 				}
 				else
 				{
 					out -= log(predict);
-					*gradient_batch = 0 - 1/predict / output->batchsize;
+					*gradient_batch = 0 - 1/predict / output->dims.d[0];
 				}
 			}
-			Loss l(output->creater, out / output->batchsize);
+			Loss l(output->creater, out / output->dims.d[0]);
 			return l;
 		}
 	}

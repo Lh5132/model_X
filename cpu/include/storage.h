@@ -25,7 +25,6 @@ namespace model_X
 		Operator* creater = nullptr;    //记录每一层的信息
 		storage();
 		storage(const dimension& dims);
-		storage(const storage*& other);
 		inline int get_dims(const int& i) const
 		{
 			if (i >= ndims)
@@ -87,7 +86,6 @@ namespace model_X
 	public:
 		tensor();
 		tensor(const dimension& dims);
-		tensor(const tensor& other);
 		tensor operator+ (tensor other);
 		tensor operator* (tensor other);
 	};

@@ -143,7 +143,7 @@ namespace model_X
 		*/
 		virtual void set_async_thread(int n);
 		virtual void set_async_thread();
-		virtual tensor forward(tensor input) = 0;
+		virtual tensor forward(tensor& input) = 0;
 		virtual void backward(Optimizer::base_optimizer& opt);
 		virtual void zero_grad();
 		virtual void to_binay_file(ofstream& outfile);
@@ -172,7 +172,7 @@ namespace model_X
 		uint32_t kernel_steps;
 		bool with_bias;
 		DTYPE* weights;
-		DTYPE* bias;
+
 		conv_stride strid;
 		conv_padding padding;
 		//转换矩阵参数
@@ -210,7 +210,8 @@ namespace model_X
 		void to_cpu();
 #endif
 	public:
-		friend void __conv_async_helper(tensor input, tensor out, Conv_2d* conv,
+		DTYPE* bias;
+		friend void __conv_async_helper(storage* input, storage* out, Conv_2d* conv,
 			uint32_t tm_batch_steps, uint32_t out_cols,
 			uint32_t start, uint32_t end);
 
@@ -221,11 +222,11 @@ namespace model_X
 
 		inline DTYPE* get_channel_data(uint16_t channel)
 		{
-			return this->weights + channel*this->kernel_steps;
+			return this->weights + channel * this->kernel_steps;
 		}
 		Conv_2d();
 		Conv_2d(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void random_init(int init_method = Normal) override;
 		void zero_grad() override;
 		void backward(Optimizer::base_optimizer& opt) override;
@@ -271,7 +272,7 @@ namespace model_X
 		{
 			return this->weights + c * this->in_size;
 		}
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -282,7 +283,7 @@ namespace model_X
 	{
 	public:
 		Relu();
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -292,7 +293,7 @@ namespace model_X
 	{
 	public:
 		Sigmoid();
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -302,7 +303,7 @@ namespace model_X
 	{
 	public:
 		Soft_max();
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -322,7 +323,7 @@ namespace model_X
 		DTYPE* running_mean;
 		DTYPE* running_var;
 
-		storage* dout_dw;
+		storage* dout_dw = nullptr;
 		DTYPE* dout_din = nullptr;
 		DTYPE* dL_dw_now = nullptr;
 		DTYPE* dL_db_now = nullptr;
@@ -337,7 +338,7 @@ namespace model_X
 		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -352,7 +353,7 @@ namespace model_X
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Max_pool(uint8_t w = 2, uint8_t h = 2);
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -365,7 +366,7 @@ namespace model_X
 		uint8_t pool_w;
 		uint8_t pool_h;
 		Ave_pool(uint8_t w = 2, uint8_t h = 2);
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -376,7 +377,7 @@ namespace model_X
 	public:
 		DTYPE rate;
 		Drop_out(float rate = 0.5);
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		void backward(Optimizer::base_optimizer& opt) override;
 		void to_binay_file(ofstream& outfile) override;
 		void read_stream(ifstream& instream);
@@ -392,7 +393,7 @@ namespace model_X
 	public:
 		Operator*& get_O1();
 		Operator*& get_O2();
-		tensor forward(tensor input) override;
+		tensor forward(tensor& input) override;
 		virtual void set_gradients() = 0;
 	};
 

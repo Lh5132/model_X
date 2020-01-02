@@ -136,7 +136,6 @@ namespace model_X
 
 	void Base_Model::set_async_thread()
 	{
-		int cpu_cors = get_cpu_cors();
 		for (Operator* layer : this->operators)
 			layer->set_async_thread(cpu_cors);
 	}
@@ -159,10 +158,12 @@ namespace model_X
 		this->operators.push_back(layer);
 	}
 
-	tensor Sequential::forward(tensor input)
+	tensor Sequential::forward(tensor& input)
 	{
 		for (Operator* layer : this->operators)
+		{
 			input = layer->forward(input);
+		}
 		return input;
 	}
 }

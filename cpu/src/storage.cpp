@@ -34,15 +34,6 @@ namespace model_X
 		set_up();
 	}
 
-	storage::storage(const storage*& other):
-		dims(other->dims), 
-		total_size(1), 
-		dim_steps(), 
-		ndims(0),
-		require_gradients(other->require_gradients)
-	{
-		set_up();
-	}
 
 #ifdef CUDA
 	void storage::to_cuda()
@@ -191,9 +182,9 @@ namespace model_X
 			out << "[";
 			for (int i = 0; i < data->get_dims(loc) - 1; i++)
 			{
-				out << data->get_data()[data_loca + i] << ",";
+				out << data->data[data_loca + i] << ",";
 			}
-			out << data->get_data()[data_loca + data->get_dims(loc) - 1];
+			out << data->data[data_loca + data->get_dims(loc) - 1];
 			out << "]";
 			return out.str();
 		}
@@ -230,12 +221,6 @@ namespace model_X
 	tensor::tensor(const dimension& dims)
 	{
 		shared_ptr<storage> temp = make_shared<storage>(dims);
-		temp.swap(*this);
-	}
-
-	tensor::tensor(const tensor& other)
-	{
-		shared_ptr<storage> temp = make_shared<storage>(other.get());
 		temp.swap(*this);
 	}
 
