@@ -42,16 +42,20 @@ constexpr auto DATA_ALIGN = 8;
 		Uniform = 1,
 		Normal = 2,
 	};
-	inline DTYPE random_gaussrand(float E, float V)
+	inline void random_gaussrand(DTYPE* data, uint32_t size, DTYPE E = 0, DTYPE V = 0.01)
 	{
-		unsigned seed = chrono::system_clock::now().time_since_epoch().count();
-		default_random_engine eng(seed);
+		random_device rd;
+		default_random_engine eng(rd());
 		normal_distribution<DTYPE> dis(E, V);
-		return dis(eng);
+		for (uint32_t i = 0; i < size; i++)
+			data[i] = dis(eng);
 	};
-	inline DTYPE random_uniform()
+	inline void random_uniform(DTYPE* data, uint32_t size)
 	{
-		return (DTYPE)rand() / RAND_MAX;
+		random_device rd;
+		srand(rd());
+		for(uint32_t i =0;i<size;i++)
+			data[i] = (DTYPE)rand() / RAND_MAX;
 	}
 
 	//地址对齐

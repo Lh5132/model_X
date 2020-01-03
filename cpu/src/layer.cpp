@@ -441,16 +441,9 @@ namespace model_X
 	void Conv_2d::random_init(int init_method)
 	{
 		if (init_method == Uniform)
-		{
-			srand(clock());
-			for(uint32_t i=0;i<total_size;i++)
-				weights[i] = random_uniform();
-		}
+			random_uniform(weights,total_size);
 		else if (init_method == Normal)
-		{
-			for (uint32_t i = 0; i < total_size; i++)
-				weights[i] = random_gaussrand(0,1);
-		}
+			random_gaussrand(weights,total_size);
 		else
 			throw "Please identify init method(Normal or Uniform)";
 	}
@@ -645,20 +638,9 @@ namespace model_X
 	void Dense::random_init(int init_method)
 	{
 		if (init_method == Uniform)
-		{
-			srand(clock());
-			for (uint32_t i = 0; i < total_size; i++)
-			{
-				weights[i] = random_uniform();
-			}
-		}
+			random_uniform(weights,total_size);
 		else if (init_method == Normal)
-		{
-			for (uint32_t i = 0; i < out_size; i++)
-			{
-				weights[i] = random_gaussrand(0, 1);
-			}
-		}
+			random_gaussrand(weights, total_size);
 		else
 			throw "Please identify init method(Normal or Uniform)";
 	}
@@ -1549,7 +1531,7 @@ namespace model_X
 		{
 			for (uint32_t i = 0; i < input->total_size; i++)
 			{
-				if (random_uniform() <= rate)
+				if ((DTYPE)rand() / RAND_MAX <= rate)
 					input->data[i] = 0;
 			}
 		}
@@ -1560,7 +1542,7 @@ namespace model_X
 			dL_din->set_zero();
 			for (uint32_t i = 0; i < input->total_size; i++)
 			{
-				if (random_uniform() <= rate)
+				if ((DTYPE)rand() / RAND_MAX <= rate)
 				{
 					input->data[i] = 0;
 					dL_din->data[i] = 0;

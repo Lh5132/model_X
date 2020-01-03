@@ -93,7 +93,7 @@ void test_speed()
 	tensor n1({ 5, 3, 224, 224 });
 	n1->random_init();
 	Conv_2d conv(3, 64, 3, 3, conv_stride(1, 1), conv_padding(PADDING_STYLE::SAME));
-	conv.random_init(Uniform);
+	conv.random_init();
 	long start = clock();
 	tensor n2 = conv.forward(n1);
 	cout << clock() - start << endl;
@@ -142,5 +142,5 @@ void test_conv_backward()
 }
 int main(int arc, char** argv)
 {
-	test_model();
+	test_se();
 }

@@ -134,14 +134,11 @@ namespace model_X
 	{
 		if (init_method == Uniform)
 		{
-			srand(clock());
-			for (uint32_t i = 0; i < total_size; i++)
-				data[i] = random_uniform();
+			random_uniform(data,total_size);
 		}
 		else if (init_method == Normal)
 		{
-			for (uint32_t i = 0; i < total_size; i++)
-				data[i] = random_gaussrand(0,1);
+			random_gaussrand(data, total_size);
 		}
 		else
 			throw "Please identify init method(Normal or Uniform)";
