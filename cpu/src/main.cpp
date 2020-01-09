@@ -149,11 +149,10 @@ void test_conv_backward()
 	conv.dL_dout->set_one();
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
-	
 	cout << conv.dL_din->data_str() << endl;
 
 }
 int main(int arc, char** argv)
 {
-	test_model();
+	test_speed();
 }

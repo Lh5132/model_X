@@ -176,9 +176,9 @@ namespace model_X
 		conv_stride strid;
 		conv_padding padding;
 		//转换矩阵参数
-		DTYPE* transform_matrix;
 		uint32_t tm_rows;
 		uint32_t tm_cols;
+		uint32_t tm_batch_steps;
 		//输出对卷积参数的雅可比矩阵
 		DTYPE* dout_dw = nullptr;
 
@@ -212,7 +212,6 @@ namespace model_X
 	public:
 		DTYPE* bias;
 		friend void __conv_async_helper(storage* input, storage* out, Conv_2d* conv,
-			uint32_t tm_batch_steps, uint32_t out_cols,
 			uint32_t start, uint32_t end);
 
 		friend class Optimizer::SGD;

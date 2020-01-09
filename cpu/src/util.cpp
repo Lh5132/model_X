@@ -1,5 +1,5 @@
 ﻿#include "util.h"
-
+#include <iostream>
 using namespace std;
 namespace model_X
 {
@@ -64,24 +64,25 @@ namespace model_X
 			__m256 data_block = _mm256_setzero_ps();
 			__m256 data_loader1;
 			__m256 data_loader2;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t k = 0;
+			uint32_t end;
+			while (true)
 			{
-				data_loader1 = _mm256_load_ps(d1 + j);
-				data_loader2 = _mm256_load_ps(d2 + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				data_loader1 = _mm256_load_ps(d1 + k);
+				data_loader2 = _mm256_load_ps(d2 + k);
 				data_block = _mm256_fmadd_ps(data_loader1, data_loader2, data_block);
+				k = end;
 			}
 			data_block = _mm256_hadd_ps(data_block, data_block);
 			data_block = _mm256_hadd_ps(data_block, data_block);
-			out += ((DTYPE*)&data_block)[0];
-			out += ((DTYPE*)&data_block)[4];
-			if (tail > 0)
+			out = data_block.m256_f32[0] + data_block.m256_f32[4];
+			if (k < size)
 			{
-				for (uint8_t i = 0; i < tail; i++)
-				{
-					out += d1[size - i - 1] * d2[size - i - 1];
-				}
+				for (uint32_t i = k; i < size; i++)
+					out += d1[i] * d2[i];
 			}
 			return out;
 		}
