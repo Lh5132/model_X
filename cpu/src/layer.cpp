@@ -161,12 +161,11 @@ namespace model_X
 		kernel_size(0),
 		kernel_steps(0),
 		total_size(0),
-		weights(nullptr),
-		bias(nullptr),
 		strid(conv_stride()),
 		padding(conv_padding()),
 		tm_cols(0),
 		tm_rows(0),
+		tm_batch_steps(0),
 		with_bias(false)
 	{
 		ID = LAYER_ID::CONV_2D;
@@ -189,15 +188,19 @@ namespace model_X
 		padding(padding),
 		with_bias(with_bias),
 		tm_cols(0),
-		tm_rows(0)
+		tm_rows(0),
+		tm_batch_steps(0)
 	{
 		ID = LAYER_ID::CONV_2D;
 		kernel_steps = kernel_size*in_channels;
 		total_size = kernel_steps * out_channels;
 		weights = (float*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
-		if(with_bias)
+		weights_size = total_size;
+		if (with_bias)
+		{
 			bias = new DTYPE[out_channels]{};
-		else bias = nullptr;
+			bias_size = out_channels;
+		}
 	}
 
 #ifdef CUDA
@@ -216,7 +219,7 @@ namespace model_X
 	void __conv_async_helper(storage* input, storage* out, Conv_2d* conv,
 		uint32_t start, uint32_t end)
 	{
-		DTYPE* temp_data = (DTYPE*)mylloc(conv->kernel_steps * DBYTES, DATA_ALIGN);
+		DTYPE* temp_w, *temp_data = (DTYPE*)mylloc(conv->kernel_steps * DBYTES, DATA_ALIGN);
 		int8_t i = -conv->padding.top, j = -conv->padding.left - conv->strid.w;
 		uint32_t out_batch_loc, out_channel_loc;
 		uint32_t input_batch_loc, input_channel_loc, input_row_loc, input_loc;
@@ -235,7 +238,7 @@ namespace model_X
 			}
 			out_batch_loc = 0;
 			input_batch_loc = 0;
-			tm_batch_loc = 0;
+			tm_batch_loc = ii;
 			fill(temp_data, temp_data + conv->kernel_steps, 0.0f);
 			krow_start = i < 0 ? -i : 0;
 			kcol_start = j < 0 ? -j : 0;
@@ -247,7 +250,6 @@ namespace model_X
 			temp_col_start = kcol_start;
 			for (uint16_t b = 0; b < input->dims.d[0]; b++)
 			{
-				out_channel_loc = out_batch_loc;
 				input_channel_loc = input_batch_loc;
 				temp_channel_loc = 0;
 				for (uint16_t c = 0; c < input->dims.d[1]; c++)
@@ -261,7 +263,7 @@ namespace model_X
 						input_loc = input_row_loc + input_col_statr_loc;
 						if (conv->require_gradients)
 						{
-							dw_where = tm_batch_loc + temp_loc * conv->tm_rows + ii;
+							dw_where = tm_batch_loc + temp_loc * conv->tm_rows;
 							din_where = input_loc * conv->kernel_size;
 						}
 						for (uint8_t kcol = kcol_start; kcol < kcol_end; kcol++)
@@ -288,17 +290,20 @@ namespace model_X
 					input_channel_loc += input->dim_steps[1];
 					temp_channel_loc += conv->kernel_size;
 				}
+				out_channel_loc = out_batch_loc;
+				temp_w = conv->weights;
 				for (uint16_t cc = 0; cc < conv->out_channels; cc++)
 				{
 					if (conv->with_bias)
-						out->data[out_channel_loc + ii] = MUL_ADD(conv->get_channel_data(cc), temp_data, conv->tm_cols) + conv->bias[cc];
+						out->data[out_channel_loc + ii] = MUL_ADD(temp_w, temp_data, conv->tm_cols) + conv->bias[cc];
 					else
-						out->data[out_channel_loc + ii] = MUL_ADD(conv->get_channel_data(cc), temp_data, conv->tm_cols);
+						out->data[out_channel_loc + ii] = MUL_ADD(temp_w, temp_data, conv->tm_cols);
 					out_channel_loc += out->dim_steps[1];
+					temp_w += conv->kernel_steps;
 				}
 				out_batch_loc += out->dim_steps[0];
 				input_batch_loc += input->dim_steps[0];
-				if (conv->is_gradiets())
+				if (conv->require_gradients)
 				{
 					tm_batch_loc += conv->tm_batch_steps;
 				}
@@ -337,26 +342,26 @@ namespace model_X
 			out_rows = (input->dims.d[2] + padding.top + padding.bottom - k_h) / strid.h + 1;
 			out_cols = (input->dims.d[3] + padding.left + padding.right - k_w) / strid.w + 1;
 		}
-		dimension d = { input->get_dims(0), out_channels, out_rows, out_cols };
-		tensor out(d);
+		tensor out({ input->get_dims(0), out_channels, out_rows, out_cols });
 		//构建中间矩阵
 		tm_cols = kernel_steps;
 		tm_rows = out_rows*out_cols;
 		tm_batch_steps = tm_rows*tm_cols;
-		uint32_t tm_size = tm_batch_steps*input->dims.d[0];
 		if (require_gradients)
 		{
+			uint32_t tm_size = tm_batch_steps * input->dims.d[0];
+			uint32_t tm_din_size = input->dim_steps[1] * kernel_size;
 			if (!dout_dw)
 			{
-				dout_dw = (DTYPE*)mylloc(tm_batch_steps * input->dims.d[0] * DBYTES, DATA_ALIGN);
+				dout_dw = (DTYPE*)mylloc(tm_size * DBYTES, DATA_ALIGN);
 				fill(dout_dw, dout_dw + tm_batch_steps, 0.0f);
 			}
 			if (!dL_din)
 				dL_din = input->copy(false);
 			if(!dout_din_w_loc)
-				dout_din_w_loc = new uint16_t[input->dim_steps[1]*kernel_size]{};
+				dout_din_w_loc = new uint16_t[tm_din_size]{};
 			if (!dout_din_out_loc)
-				dout_din_out_loc = new uint16_t[input->dim_steps[1]*kernel_size]{};
+				dout_din_out_loc = new uint16_t[tm_din_size]{};
 			if(!dout_din_row_size)
 				dout_din_row_size = new uint16_t[input->dim_steps[1]]{};
 			out->require_gradients = true;
@@ -472,6 +477,9 @@ namespace model_X
 			dL_dout_batch_loc += dL_dout->dim_steps[0];
 			dL_din_batch_loc += dL_din->dim_steps[0];
 		}
+		for (int i = 0; i < total_size; i++)
+			cout << dL_dw_now[i] << ",";
+		cout << endl;
 		opt.apply_gradients(this);
 	}
 	void Conv_2d::print_weight()
@@ -577,8 +585,6 @@ namespace model_X
 	}
 
 	Dense::Dense() :
-		weights(nullptr),
-		bias(nullptr),
 		in_size(0),
 		out_size(0),
 		total_size(0),
@@ -593,10 +599,13 @@ namespace model_X
 		total_size(in_size* out_size)
 	{
 		ID = LAYER_ID::DENSE;
-		weights = (DTYPE*)mylloc(total_size*DBYTES, MALLOC_ALIGN);
-		if(with_bias)
+		weights = (DTYPE*)mylloc(total_size * DBYTES, MALLOC_ALIGN);
+		weights_size = total_size;
+		if (with_bias)
+		{
 			bias = new DTYPE[out_size]{};
-		else bias = nullptr;
+			bias_size = out_size;
+		}
 	}
 	void Dense::random_init(int init_method)
 	{
@@ -995,8 +1004,6 @@ namespace model_X
 		channels(0),
 		moment(0),
 		eps(0),
-		weight(nullptr),
-		bias(nullptr),
 		cur_mean(nullptr),
 		cur_var(nullptr),
 		running_mean(nullptr),
@@ -1008,9 +1015,7 @@ namespace model_X
 		:with_weights(with_weights),
 		channels(channels),
 		moment(moment),
-		eps(eps),
-		weight(nullptr),
-		bias(nullptr)
+		eps(eps)
 	{
 		ID = LAYER_ID::BN;
 		cur_mean = new DTYPE[channels]{};
@@ -1019,9 +1024,10 @@ namespace model_X
 		running_var = new DTYPE[channels]{};
 		if (with_weights)
 		{
-			weight = new DTYPE[channels]{};
+			weights = new DTYPE[channels]{};
 			bias = new DTYPE[channels]{};
-			fill(weight, weight + channels, 1.0f);
+			weights_size = bias_size = channels;
+			fill(weights, weights + channels, 1.0f);
 		}
 	}
 
@@ -1061,7 +1067,7 @@ namespace model_X
 					cur_mean[i] = temp_M;
 					cur_var[i] = temp_V;
 					DTYPE var_sqrt = sqrt(temp_V + eps);
-					dout_din[i] = weight[i] / var_sqrt;
+					dout_din[i] = weights[i] / var_sqrt;
 					for (uint16_t j = 0; j < input->dims.d[0]; j++)
 					{
 						uint32_t loc = j*input->dim_steps[0] + channel_loc;
@@ -1072,7 +1078,7 @@ namespace model_X
 							res[k] = (res[k] - temp_M) / var_sqrt;
 							dout_dw_data[k] = res[k];
 						}
-						LINEAR_MUL_ADD(res, weight[i], bias[i], input->dim_steps[1]);
+						LINEAR_MUL_ADD(res, weights[i], bias[i], input->dim_steps[1]);
 					}
 				}
 			}
@@ -1128,7 +1134,7 @@ namespace model_X
 						res[k] = (res[k] - running_mean[i]) / sqrt(running_var[i] + eps);
 					}
 					if (with_weights)
-						LINEAR_MUL_ADD(res, weight[i], bias[i], input->dim_steps[1]);
+						LINEAR_MUL_ADD(res, weights[i], bias[i], input->dim_steps[1]);
 				}
 			}
 		}
@@ -1187,12 +1193,12 @@ namespace model_X
 		outfile.write((char*)&moment, DBYTES);
 		outfile.write((char*)&eps, DBYTES);
 		outfile.write((char*)&with_weights, sizeof(bool));
-		outfile.write((char*)running_mean, channels*DBYTES);
-		outfile.write((char*)running_var, channels*DBYTES);
+		outfile.write((char*)running_mean, channels * DBYTES);
+		outfile.write((char*)running_var, channels * DBYTES);
 		if (with_weights)
 		{
-			outfile.write((char*)weight, channels*DBYTES);
-			outfile.write((char*)bias, channels*DBYTES);
+			outfile.write((char*)weights, channels * DBYTES);
+			outfile.write((char*)bias, channels * DBYTES);
 		}
 
 	}
@@ -1209,10 +1215,10 @@ namespace model_X
 		instream.read((char*)running_var, channels*DBYTES);
 		if (with_weights)
 		{
-			weight = new DTYPE[channels]{};
+			weights = new DTYPE[channels]{};
 			bias = new DTYPE[channels]{};
-			instream.read((char*)weight, channels*DBYTES);
-			instream.read((char*)bias, channels*DBYTES);
+			instream.read((char*)weights, channels * DBYTES);
+			instream.read((char*)bias, channels * DBYTES);
 		}
 	}
 
@@ -1228,7 +1234,7 @@ namespace model_X
 
 	Batch_normal_2d::~Batch_normal_2d()
 	{
-		if (weight) delete[] weight;
+		if (weights) delete[] weights;
 		if (bias) delete[] bias;
 		if (running_mean) delete[] running_mean;
 		if (running_var) delete[] running_var;

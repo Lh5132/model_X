@@ -136,7 +136,7 @@ void test_conv_backward()
 
 	float bias[] = { -0.1674,  0.1276 };
 
-	memcpy(conv.bias, bias, 2 * sizeof(float));
+	memcpy(conv.get_bias(), bias, 2 * sizeof(float));
 	memcpy(conv.get_channel_data(0), w1, 27 * sizeof(float));
 	memcpy(conv.get_channel_data(1), w2, 27 * sizeof(float));
 
@@ -149,10 +149,11 @@ void test_conv_backward()
 	conv.dL_dout->set_one();
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
+	conv.print_weight();
 	cout << conv.dL_din->data_str() << endl;
 
 }
 int main(int arc, char** argv)
 {
-	test_speed();
+	test_conv_backward();
 }

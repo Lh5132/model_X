@@ -28,37 +28,31 @@ namespace model_X
 #ifdef AVX_2
 	void add_avx(DTYPE* d1, DTYPE* d2, DTYPE* des, const uint32_t& size)
 	{
-		DTYPE out = 0;
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_block_temp;
 			__m256 data_loader1;
 			__m256 data_loader2;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t end, k = 0;
+			while (true)
 			{
-				data_loader1 = _mm256_load_ps(d1 + j);
-				data_loader2 = _mm256_load_ps(d2 + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				data_loader1 = _mm256_load_ps(d1 + k);
+				data_loader2 = _mm256_load_ps(d2 + k);
 				data_block_temp = _mm256_add_ps(data_loader1, data_loader2);
-				_mm256_storeu_ps(des + j, data_block_temp);
+				_mm256_storeu_ps(des + k, data_block_temp);
+				k = end;
 			}
-			if (tail > 0)
-			{
-				for (uint8_t i = 0; i < tail; i++)
-					des[size - i -1] = d1[size - i - 1] + d2[size - i - 1];
-			}
+			for (uint32_t i = k; i < size; i++)
+				des[i] = d1[i] + d2[i];
 		}
 		else if (size > 0)
 			add_normal(d1, d2, des, size);
 	}
 	DTYPE muladd_avx(DTYPE* d1, DTYPE* d2, uint32_t& size)
 	{
-		DTYPE out = 0;
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_block = _mm256_setzero_ps();
@@ -78,12 +72,9 @@ namespace model_X
 			}
 			data_block = _mm256_hadd_ps(data_block, data_block);
 			data_block = _mm256_hadd_ps(data_block, data_block);
-			out = data_block.m256_f32[0] + data_block.m256_f32[4];
-			if (k < size)
-			{
-				for (uint32_t i = k; i < size; i++)
-					out += d1[i] * d2[i];
-			}
+			DTYPE out = data_block.m256_f32[0] + data_block.m256_f32[4];
+			for (uint32_t i = k; i < size; i++)
+				out += d1[i] * d2[i];
 			return out;
 		}
 		else if (size > 0)
@@ -92,26 +83,23 @@ namespace model_X
 	}
 	DTYPE sum_avx(DTYPE* d1, uint32_t& size)
 	{
-		DTYPE out = 0;
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_block = _mm256_setzero_ps();
 			__m256 data_loader1;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t end, k = 0;
+			while (true)
 			{
-				data_loader1 = _mm256_load_ps(d1 + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				data_loader1 = _mm256_load_ps(d1 + k);
 				data_block = _mm256_add_ps(data_block, data_loader1);
+				k = end;
 			}
-			data_block = _mm256_hadd_ps(data_block, data_block);
-			data_block = _mm256_hadd_ps(data_block, data_block);
-			out += ((DTYPE*)&data_block)[0];
-			out += ((DTYPE*)&data_block)[4];
-			for (uint8_t i = 0; i < tail; i++)
-				out += d1[size - i - 1];
+			DTYPE out = data_block.m256_f32[0] + data_block.m256_f32[4];
+			for (uint32_t i = k; i < size; i++)
+				out += d1[i];
 			return out;
 		}
 		else if (size > 0)
@@ -121,28 +109,28 @@ namespace model_X
 	DTYPE var_avx(DTYPE* d1, DTYPE& mean, uint32_t& size)
 	{
 		DTYPE out = 0;
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_block = _mm256_set1_ps(mean);
 			__m256 data_block1 = _mm256_setzero_ps();
 			__m256 data_block_temp;
 			__m256 data_loader1;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t end, k = 0;
+			while (true)
 			{
-				data_loader1 = _mm256_load_ps(d1 + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				data_loader1 = _mm256_load_ps(d1 + k);
 				data_block_temp = _mm256_sub_ps(data_loader1, data_block);
 				data_block1 = _mm256_fmadd_ps(data_block_temp, data_block_temp, data_block1);
+				k = end;
 			}
-			data_block1 = _mm256_hadd_ps(data_block1, data_block1);
-			data_block1 = _mm256_hadd_ps(data_block1, data_block1);
-			out += ((DTYPE*)&data_block1)[0];
-			out += ((DTYPE*)&data_block1)[4];
-			for (uint8_t i = 0; i < tail; i++)
-				out += (d1[size - i - 1] - mean)*(d1[size - i - 1] - mean);
+			DTYPE out = data_block.m256_f32[0] + data_block.m256_f32[4];
+			for (uint32_t i = k; i < size; i++)
+			{
+				out += pow(d1[i] - mean, 2);
+			}
 			return out / size;
 		}
 		else if (size > 0)
@@ -151,49 +139,53 @@ namespace model_X
 	}
 	void linear_muladd_avx(DTYPE* d1, DTYPE& d2, DTYPE& d3, uint32_t& size)
 	{
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_block1 = _mm256_set1_ps(d2);
 			__m256 data_block2 = _mm256_set1_ps(d3);
 			__m256 data_block_temp;
 			__m256 data_loader1;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t end, k = 0;
+			while (true)
 			{
-				data_loader1 = _mm256_load_ps(d1 + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				data_loader1 = _mm256_load_ps(d1 + k);
 				data_block_temp = _mm256_fmadd_ps(data_loader1, data_block1, data_block2);
-				_mm256_storeu_ps(d1 + j, data_block_temp);
+				_mm256_storeu_ps(d1 + k, data_block_temp);
+				k = end;
 			}
-			for (uint8_t i = 0; i < tail; i++)
-				d1[size - i - 1] = d1[size - i - 1] * d2 + d3;
+			for (uint32_t i = k; i < size; i++)
+			{
+				d1[i] = d1[i] * d2 + d3;
+			}
 		}
 		else
 			linear_muladd_normal(d1, d2, d3, size);
 	}
 	void apply_gradients_avx(DTYPE * grad, DTYPE * data, DTYPE lr, uint32_t & size)
 	{
-		uint32_t nblocks;
-		uint8_t tail;
 		if (size > 8)
 		{
 			__m256 data_loader;
 			__m256 grad_loader;
 			__m256 learningrate = _mm256_set1_ps(lr);
 			__m256 temp;
-			nblocks = size / 8;
-			tail = size % 8;
-			for (uint32_t i = 0, j = 0; i < nblocks; i++, j += 8)
+			uint32_t end, k = 0;
+			while (true)
 			{
-				grad_loader = _mm256_loadu_ps(grad + j);
-				data_loader = _mm256_loadu_ps(data + j);
+				end = k + 8;
+				if (end >= size)
+					break;
+				grad_loader = _mm256_loadu_ps(grad + k);
+				data_loader = _mm256_loadu_ps(data + k);
 				temp = _mm256_fnmadd_ps(grad_loader, learningrate, data_loader);
-				_mm256_storeu_ps(data + j, temp);
+				_mm256_storeu_ps(data + k, temp);
+				k = end;
 			}
-			for (uint8_t i = 0; i < tail; i++)
-				data[size - i - 1] = data[size - i - 1] - lr * grad[size - i - 1];
+			for (uint32_t i = k; i < size; i++)
+				data[i] = data[i] - lr * grad[i];
 		}
 		else
 			apply_gradients_normal(grad, data, lr, size);

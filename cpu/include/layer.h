@@ -95,7 +95,25 @@ namespace model_X
 		//导数传递
 		int parall_thread = 0;
 
+		DTYPE* weights;
+		DTYPE* bias;
+		uint32_t weights_size;
+		uint32_t bias_size;
+		DTYPE* dL_dw_now = nullptr;
+		DTYPE* dL_db_now = nullptr;
+		DTYPE* dL_dw = nullptr;
+		DTYPE* dL_db = nullptr;
+		DTYPE* dL_dw_1 = nullptr;
+		DTYPE* dL_db_1 = nullptr;
+		DTYPE* dL_dw_2 = nullptr;
+		DTYPE* dL_db_2 = nullptr;
+
 	public:
+		friend class Optimizer::SGD;
+		friend class Optimizer::Momentum;
+		friend class Optimizer::RMSProp;
+		friend class Optimizer::Adam;
+
 		uint8_t ID = 0;
 		Operator* pre = nullptr;   //用于记录从后向前的单向链表
 		/*
@@ -171,7 +189,6 @@ namespace model_X
 		uint32_t total_size;
 		uint32_t kernel_steps;
 		bool with_bias;
-		DTYPE* weights;
 
 		conv_stride strid;
 		conv_padding padding;
@@ -186,14 +203,6 @@ namespace model_X
 		uint16_t* dout_din_w_loc = nullptr;				
 		uint16_t* dout_din_out_loc = nullptr;
 		uint16_t* dout_din_row_size = nullptr;
-		DTYPE* dL_dw_now = nullptr;
-		DTYPE* dL_db_now = nullptr;
-		DTYPE* dL_dw = nullptr;
-		DTYPE* dL_db = nullptr;
-		DTYPE* dL_dw_1 = nullptr;
-		DTYPE* dL_db_1 = nullptr;
-		DTYPE* dL_dw_2 = nullptr;
-		DTYPE* dL_db_2 = nullptr;
 
 		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
 		uint32_t time_step = 0;
@@ -210,21 +219,20 @@ namespace model_X
 		void to_cpu();
 #endif
 	public:
-		DTYPE* bias;
 		friend void __conv_async_helper(storage* input, storage* out, Conv_2d* conv,
 			uint32_t start, uint32_t end);
-
-		friend class Optimizer::SGD;
-		friend class Optimizer::Momentum;
-		friend class Optimizer::RMSProp;
-		friend class Optimizer::Adam;
 
 		inline DTYPE* get_channel_data(uint16_t channel)
 		{
 			return this->weights + channel * this->kernel_steps;
 		}
+		inline DTYPE* get_bias()
+		{
+			return this->bias;
+		}
 		Conv_2d();
-		Conv_2d(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, conv_stride strid, conv_padding padding, bool with_bias = true);
+		Conv_2d(uint16_t in_channels, uint16_t out_channels, uint8_t w, uint8_t h, 
+			conv_stride strid, conv_padding padding, bool with_bias = true);
 		tensor forward(tensor& input) override;
 		void random_init(int init_method = Normal) override;
 		void zero_grad() override;
@@ -241,28 +249,13 @@ namespace model_X
 	class Dense final :public Operator
 	{
 	private:
-		DTYPE* weights;
-		DTYPE* bias;
 		uint32_t in_size;
 		uint32_t out_size;
 		uint32_t total_size;
 		bool with_bias;
 		storage* dout_dw = nullptr;
-		DTYPE* dL_dw_now = nullptr;
-		DTYPE* dL_db_now = nullptr;
-		//记录误差项对卷积参数的梯度值(一阶和二阶)的动量平均，在Adam中将会用到
-		DTYPE* dL_dw = nullptr;
-		DTYPE* dL_db = nullptr;
-		DTYPE* dL_dw_1 = nullptr;
-		DTYPE* dL_db_1 = nullptr;
-		DTYPE* dL_dw_2 = nullptr;
-		DTYPE* dL_db_2 = nullptr;
 		uint32_t time_step = 0;
 	public:
-		friend class Optimizer::SGD;
-		friend class Optimizer::Momentum;
-		friend class Optimizer::RMSProp;
-		friend class Optimizer::Adam;
 		friend void __dense_async_helper(Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
 		Dense();
 		Dense(uint32_t in_size, uint32_t out_size, bool with_bias = true);
@@ -313,8 +306,6 @@ namespace model_X
 	private:
 		uint16_t channels;
 		bool with_weights;
-		DTYPE* weight;
-		DTYPE* bias;
 		DTYPE moment;
 		DTYPE eps;
 		DTYPE* cur_mean;
@@ -324,17 +315,8 @@ namespace model_X
 
 		storage* dout_dw = nullptr;
 		DTYPE* dout_din = nullptr;
-		DTYPE* dL_dw_now = nullptr;
-		DTYPE* dL_db_now = nullptr;
-		DTYPE* dL_dw = nullptr;
-		DTYPE* dL_db = nullptr;
-		DTYPE* dL_dw_1 = nullptr;
-		DTYPE* dL_db_1 = nullptr;
-		DTYPE* dL_dw_2 = nullptr;
-		DTYPE* dL_db_2 = nullptr;
 
 	public:
-		
 		Batch_normal_2d();
 		Batch_normal_2d(uint16_t channels, DTYPE moment = 0.1, DTYPE eps = 1e-5, bool with_weights = true);
 		tensor forward(tensor& input) override;
