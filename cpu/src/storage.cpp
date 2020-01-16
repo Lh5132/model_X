@@ -91,7 +91,7 @@ namespace model_X
 	}
 	void storage::flaten()
 	{
-		dims.d[1] = dim_steps[1];
+		dims.d[1] = dim_steps[0];
 		dim_steps[1] = 1;
 		ndims = 2;
 	}

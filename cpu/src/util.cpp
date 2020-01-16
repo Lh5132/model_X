@@ -97,6 +97,8 @@ namespace model_X
 				data_block = _mm256_add_ps(data_block, data_loader1);
 				k = end;
 			}
+			data_block = _mm256_hadd_ps(data_block, data_block);
+			data_block = _mm256_hadd_ps(data_block, data_block);
 			DTYPE out = data_block.m256_f32[0] + data_block.m256_f32[4];
 			for (uint32_t i = k; i < size; i++)
 				out += d1[i];
@@ -126,6 +128,8 @@ namespace model_X
 				data_block1 = _mm256_fmadd_ps(data_block_temp, data_block_temp, data_block1);
 				k = end;
 			}
+			data_block = _mm256_hadd_ps(data_block, data_block);
+			data_block = _mm256_hadd_ps(data_block, data_block);
 			DTYPE out = data_block.m256_f32[0] + data_block.m256_f32[4];
 			for (uint32_t i = k; i < size; i++)
 			{

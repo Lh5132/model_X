@@ -86,6 +86,7 @@ namespace model_X
 	public:
 		tensor();
 		tensor(const dimension& dims);
+
 		tensor operator+ (tensor other);
 		tensor operator* (tensor other);
 	};

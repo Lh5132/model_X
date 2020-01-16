@@ -38,6 +38,8 @@ namespace model_X
 		static const uint8_t MAX_POOL = 8;
 		static const uint8_t AVE_POOL = 9;
 		static const uint8_t DROP_OUT = 10;
+		static const uint8_t FLATEN = 11;
+		static const uint8_t GLOBAL_AVERAGE_POOL = 12;
 	}
 	typedef struct conv_stride
 	{
@@ -256,7 +258,8 @@ namespace model_X
 		storage* dout_dw = nullptr;
 		uint32_t time_step = 0;
 	public:
-		friend void __dense_async_helper(Dense* dense, DTYPE* res, DTYPE* inp, uint32_t start, uint32_t end);
+		friend void __dense_async_helper(storage* input, storage* out, Dense* dense,
+			uint32_t start, uint32_t end);
 		Dense();
 		Dense(uint32_t in_size, uint32_t out_size, bool with_bias = true);
 		void random_init(int init_method = Normal) override;
@@ -383,6 +386,13 @@ namespace model_X
 	public:
 		Add(Operator* O1, Operator* O2);
 		void set_gradients() override;
+	};
+
+	class Flaten final : public Operator
+	{
+	public:
+		Flaten();
+		tensor forward(tensor& input) override;
 	};
 }
 

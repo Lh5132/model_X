@@ -29,76 +29,62 @@ void test_model()
 {
 	Sequential model = Sequential();
 	model.add_moudle(new Conv_2d(3, 64, 3, 3, conv_stride(1,1), conv_padding(1,1,1,1)));
-	model.add_moudle(new Batch_normal_2d(64));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(64, 64, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(64));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
 	model.add_moudle(new Conv_2d(64, 128, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(128));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(128, 128, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(128));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
 	model.add_moudle(new Conv_2d(128, 256, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(256));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(256, 256, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(256));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(256, 256, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(256));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
 	model.add_moudle(new Conv_2d(256, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
 	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Conv_2d(512, 512, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
-	model.add_moudle(new Batch_normal_2d(512));
 	model.add_moudle(new Relu());
 	model.add_moudle(new Max_pool(2, 2));
 
-	model.add_moudle(new Conv_2d(512, 1, 3, 3, conv_stride(1, 1), conv_padding(1, 1, 1, 1)));
+	model.add_moudle(new Flaten());
 
-	//model.add_moudle(new Dense(25088, 4096));
-	//model.add_moudle(new Relu());
-	//model.add_moudle(new Drop_out());
-	//model.add_moudle(new Dense(4096, 4096));
-	//model.add_moudle(new Relu());
-	//model.add_moudle(new Drop_out());
-	//model.add_moudle(new Dense(4096, 1000));
+	model.add_moudle(new Dense(25088, 4096));
+	model.add_moudle(new Relu());
+	model.add_moudle(new Drop_out());
+	model.add_moudle(new Dense(4096, 4096));
+	model.add_moudle(new Relu());
+	model.add_moudle(new Drop_out());
+	model.add_moudle(new Dense(4096, 1000));
 
 	tensor input({ 1, 3, 224, 224 });
 	input->random_init();
 	cout << "张量初始化完成" << endl;
-	model.train();
+	model.eval();
 	model.random_init();
-	//model.set_async_thread();
+	model.set_async_thread();
 	cout << "模型创建完成" << endl;
 	long start = clock();
 	tensor out = model.forward(input);
 	long end = clock();
 	cout << "耗时: " << end - start << endl;
-	cout << out->data_str() << endl;
 	cout << endl;
 }
 void test_speed()
@@ -149,11 +135,10 @@ void test_conv_backward()
 	conv.dL_dout->set_one();
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
-	conv.print_weight();
 	cout << conv.dL_din->data_str() << endl;
 
 }
 int main(int arc, char** argv)
 {
-	test_conv_backward();
+	test_model();
 }
