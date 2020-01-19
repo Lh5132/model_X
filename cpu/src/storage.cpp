@@ -173,27 +173,27 @@ namespace model_X
 	}
 	string get_str(int data_loca, int loc, storage* data)
 	{
-		if (loc == data->get_ndims() - 1)
+		if (loc == data->ndims - 1)
 		{
 			ostringstream out;
 			out << "[";
-			for (int i = 0; i < data->get_dims(loc) - 1; i++)
+			for (int i = 0; i < data->dims.d[loc] - 1; i++)
 			{
 				out << data->data[data_loca + i] << ",";
 			}
-			out << data->data[data_loca + data->get_dims(loc) - 1];
+			out << data->data[data_loca + data->dims.d[loc] - 1];
 			out << "]";
 			return out.str();
 		}
 		ostringstream out;
 		out << "[";
 		string out_s;
-		for (int i = 0; i < data->get_dims(loc) - 1; i++)
+		for (int i = 0; i < data->dims.d[loc] - 1; i++)
 		{
-			out << get_str(data_loca + data->get_dim_steps(loc) * i, loc + 1, data);
+			out << get_str(data_loca + data->dim_steps[loc] * i, loc + 1, data);
 			out << ",\n";
 		}
-		out << get_str(data_loca + data->get_dim_steps(loc) * (data->get_dims(loc) - 1), loc + 1, data);
+		out << get_str(data_loca + data->dim_steps[loc] * (data->dims.d[loc] - 1), loc + 1, data);
 		out << "]";
 		return out.str();
 	}
@@ -221,11 +221,58 @@ namespace model_X
 		temp.swap(*this);
 	}
 
+	const int* tensor::shape()
+	{
+		return this->get()->dims.d;
+	}
+
+	uint8_t tensor::get_ndims() const
+	{
+		return this->get()->ndims;
+	}
+
+	uint32_t tensor::get_dim_steps(const int& i) const
+	{
+		if (i >= this->get()->ndims)
+			throw "dimension out of range";
+		return this->get()->dim_steps[i];
+	}
+
+	const uint32_t tensor::get_total_size()
+	{
+		return this->get()->total_size;
+	}
+
+	DTYPE* tensor::get_data() const
+	{
+		return this->get()->data;
+	}
+
+	void tensor::set_zero()
+	{
+		fill(this->get()->data, this->get()->data + this->get()->total_size, 0.0f);
+	}
+
+	void tensor::set_one()
+	{
+		fill(this->get()->data, this->get()->data + this->get()->total_size, 1.0f);
+	}
+
+	bool tensor::is_require_gradienst()
+	{
+		return this->get()->require_gradients;
+	}
+
+	void tensor::set_require_gradienst(bool grad)
+	{
+		this->get()->require_gradients = grad;
+	}
+
 	tensor tensor::operator+ (tensor other)
 	{
 		tensor out(other);
-		ADD((*this)->get_data(), other->get_data(), out->get_data(),other->get_total_size());
-		if (this->get()->is_require_gradienst())
+		ADD(this->get_data(), other.get_data(), out.get_data(),other.get_total_size());
+		if (this->is_require_gradienst())
 		{
 			if ((*this)->creater && other->creater)
 			{

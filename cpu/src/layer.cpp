@@ -111,7 +111,7 @@ namespace model_X
 			else
 			{
 				if (pre->dL_dout)
-					ADD(pre->dL_dout->get_data(), dL_din->get_data(), pre->dL_dout->get_data(), dL_din->get_total_size());
+					ADD(pre->dL_dout->data, dL_din->data, pre->dL_dout->data, dL_din->total_size);
 				else
 					pre->dL_dout = dL_din;
 			}
@@ -343,7 +343,7 @@ namespace model_X
 			out_rows = (input->dims.d[2] + padding.top + padding.bottom - k_h) / strid.h + 1;
 			out_cols = (input->dims.d[3] + padding.left + padding.right - k_w) / strid.w + 1;
 		}
-		tensor out({ input->get_dims(0), out_channels, out_rows, out_cols });
+		tensor out({ input->dims.d[0], out_channels, out_rows, out_cols });
 		//构建中间矩阵
 		tm_cols = kernel_steps;
 		tm_rows = out_rows*out_cols;
@@ -1243,7 +1243,7 @@ namespace model_X
 		{
 			if (!dL_din)
 				dL_din = input->copy(false);
-			dL_din->set_zero();
+			fill(dL_din->data, dL_din->data + dL_din->total_size, 0);
 			DTYPE* res = out->data;
 			DTYPE* inp = input->data;
 			DTYPE* dL_din_data = dL_din->data;
@@ -1501,7 +1501,7 @@ namespace model_X
 		{
 			if (!dL_din)
 				dL_din = input->copy(false);
-			dL_din->set_zero();
+			fill(dL_din->data, dL_din->data + dL_din->total_size, 0);
 			for (uint32_t i = 0; i < input->total_size; i++)
 			{
 				if ((DTYPE)rand() / RAND_MAX <= rate)

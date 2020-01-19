@@ -132,7 +132,7 @@ void test_conv_backward()
 	tensor n2 = conv.forward(n1);
 	cout << n2->data_str() << endl;;
 	conv.dL_dout = new storage({ 1,2,5,5 });
-	conv.dL_dout->set_one();
+	fill(conv.dL_dout->data, conv.dL_dout->data + conv.dL_dout->total_size, 1.0f);
 	auto opt = Optimizer::SGD(0.1);
 	conv.backward(opt);
 	cout << conv.dL_din->data_str() << endl;

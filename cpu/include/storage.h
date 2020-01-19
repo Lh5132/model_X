@@ -25,46 +25,6 @@ namespace model_X
 		Operator* creater = nullptr;    //记录每一层的信息
 		storage();
 		storage(const dimension& dims);
-		inline int get_dims(const int& i) const
-		{
-			if (i >= ndims)
-				throw "dimension out of range";
-			return dims.d[i];
-		}
-		inline uint8_t get_ndims() const
-		{
-			return ndims;
-		}
-		inline uint32_t get_dim_steps(const int& i) const
-		{
-			if (i >= ndims)
-				throw "dimension out of range";
-			return dim_steps[i];
-		}
-		inline const uint32_t& get_total_size()
-		{
-			return total_size;
-		}
-		inline DTYPE* get_data() const
-		{
-			return data;
-		}
-		inline void set_zero()
-		{
-			fill(data, data + total_size, 0.0f);
-		}
-		inline void set_one()
-		{
-			fill(data, data + total_size, 1.0f);
-		}
-		inline bool is_require_gradienst()
-		{
-			return this->require_gradients;
-		}
-		inline void set_require_gradienst(bool grad)
-		{
-			this->require_gradients = grad;
-		}
 #ifdef CUDA
 		storage* cuda_data; //用于管理GPU中的storage数据
 		bool is_cuda;
@@ -86,7 +46,15 @@ namespace model_X
 	public:
 		tensor();
 		tensor(const dimension& dims);
-
+		const int* shape();
+		uint8_t get_ndims() const;
+		uint32_t get_dim_steps(const int& i) const;
+		const uint32_t get_total_size();
+		DTYPE* get_data() const;
+		void set_zero();
+		void set_one();
+		bool is_require_gradienst();
+		void set_require_gradienst(bool grad);
 		tensor operator+ (tensor other);
 		tensor operator* (tensor other);
 	};
